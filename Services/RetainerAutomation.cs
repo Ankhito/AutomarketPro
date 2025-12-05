@@ -83,7 +83,7 @@ namespace AutomarketPro.Services
                 // Wait for scan to complete
                 while (Scanner.Scanning && !AutomationToken.Token.IsCancellationRequested)
                 {
-                    await Task.Delay(60);
+                    await Task.Delay(66);
                 }
                 
                 var config = Plugin.Configuration;
@@ -185,7 +185,7 @@ namespace AutomarketPro.Services
                 
                 await SimulateRetainerInteraction(retainerIndex, profitableQueue, unprofitableQueue, token);
                 
-                await Task.Delay(Plugin.Configuration.RetainerDelay, token);
+                await Task.Delay((int)(Plugin.Configuration.RetainerDelay * 1.1), token);
             }
         }
         
@@ -220,7 +220,7 @@ namespace AutomarketPro.Services
             }
             
             // Add delay after selecting "Sell items" before starting to list items
-            await Task.Delay(600, token);
+            await Task.Delay(660, token);
             
             // Step 2.5: Manage listed items if enabled (before processing inventory items)
             // This adjusts prices for currently listed items by undercutting the market
@@ -287,23 +287,23 @@ namespace AutomarketPro.Services
                 }
                 
                 // Refresh current listings count after successful listing
-                await Task.Delay(300, token);
+                await Task.Delay(330, token);
                 currentListings = RetainerInteraction.GetRetainerMarketItemCount(retainerIndex);
                 
                 // Delay between listings - make it longer if we already have items listed
                 if (currentListings > 1)
                 {
-                    await Task.Delay(Plugin.Configuration.ActionDelay * 2, token);
+                    await Task.Delay((int)(Plugin.Configuration.ActionDelay * 2 * 1.1), token);
                 }
                 else
                 {
-                    await Task.Delay(Plugin.Configuration.ActionDelay, token);
+                    await Task.Delay((int)(Plugin.Configuration.ActionDelay * 1.1), token);
                 }
                 
                 // Check for pause
                 while (IsPaused && !token.IsCancellationRequested)
                 {
-                    await Task.Delay(60);
+                    await Task.Delay(66);
                 }
             }
             
@@ -337,7 +337,7 @@ namespace AutomarketPro.Services
                 // Check for pause
                 while (IsPaused && !token.IsCancellationRequested)
                 {
-                    await Task.Delay(60);
+                    await Task.Delay(66);
                 }
             }
             

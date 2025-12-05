@@ -284,7 +284,7 @@ namespace AutomarketPro.Automation
                     }
                     
                     // Add delay before opening context menu to ensure UI is stable
-                    await Task.Delay(100, token);
+                    await Task.Delay(110, token);
                     
                     // Open context menu for the item
                     bool menuOpened = await OpenItemContextMenuForSlot(item, currentInventoryType, currentInventorySlot, token);
@@ -296,7 +296,7 @@ namespace AutomarketPro.Automation
                     }
                     
                     // Add delay after opening context menu to ensure it's fully ready
-                    await Task.Delay(100, token);
+                    await Task.Delay(110, token);
                     
                     if (!await ClickPutUpForSale(item, token))
                     {
@@ -304,7 +304,7 @@ namespace AutomarketPro.Automation
                         break;
                     }
                     
-                    await Task.Delay(60, token);
+                    await Task.Delay(66, token);
                     
                     // Only do price comparison on first batch (or if not using Data Center Scan)
                     bool priceFound = false;
@@ -315,7 +315,7 @@ namespace AutomarketPro.Automation
                         {
                             if (compareAttempt > 0)
                             {
-                                await Task.Delay(180, token);
+                                await Task.Delay(198, token);
                             }
                             
                             bool clickedCompare = false;
@@ -331,7 +331,7 @@ namespace AutomarketPro.Automation
                             
                             if (clickedCompare)
                             {
-                                await Task.Delay(180, token);
+                                await Task.Delay(198, token);
                                 var price = await GetLowestPriceFromComparePrices(item, token);
                                 if (price > 0)
                                 {
@@ -355,14 +355,14 @@ namespace AutomarketPro.Automation
                         priceFound = true;
                     }
                     
-                    await Task.Delay(60, token);
+                    await Task.Delay(66, token);
                     
                     nint retainerSellPtr = nint.Zero;
                     bool retainerSellReady = false;
                     
                     for (int attempts = 0; attempts < 30; attempts++)
                     {
-                        await Task.Delay(60, token);
+                        await Task.Delay(66, token);
                         
                         unsafe
                         {
@@ -464,7 +464,7 @@ namespace AutomarketPro.Automation
                     // If there's more to list, check if current slot is depleted and find next stack if needed
                     if (remainingQuantity > 0)
                     {
-                        await Task.Delay(300, token); // Delay between batches
+                        await Task.Delay(330, token); // Delay between batches
                         
                         // Verify current slot still has items, if not find next stack
                         // Use safe wrapper to re-validate pointer after delay
@@ -609,7 +609,7 @@ namespace AutomarketPro.Automation
                 if (closedMenu)
                 {
                     Log?.Invoke("[AutoMarket] Closed existing context menu before opening new one");
-                    await Task.Delay(100, token); // Small delay after closing
+                    await Task.Delay(110, token); // Small delay after closing
                 }
                 
                 // Step 3: Verify inventory state
@@ -707,16 +707,16 @@ namespace AutomarketPro.Automation
                 }
                 
                 // Step 5: Add a small delay to ensure UI is stable (after opening)
-                await Task.Delay(50, token);
+                await Task.Delay(55, token);
                 
                 // Step 6 delay: If we closed a menu, wait a bit
                 // (Already handled in Step 6 above, but add delay here too)
-                await Task.Delay(50, token);
+                await Task.Delay(55, token);
                 
                 // Step 8: Wait for context menu to appear with validation
                 for (int attempts = 0; attempts < 10; attempts++)
                 {
-                    await Task.Delay(30, token);
+                    await Task.Delay(33, token);
                     
                     unsafe
                     {
@@ -887,7 +887,7 @@ namespace AutomarketPro.Automation
                 }
                 if (closedMenu)
                 {
-                    await Task.Delay(100, token);
+                    await Task.Delay(110, token);
                 }
                 
                 // Open context menu using AgentInventoryContext
@@ -922,13 +922,13 @@ namespace AutomarketPro.Automation
                 }
                 
                 // Add delay to ensure UI is stable (after opening)
-                await Task.Delay(50, token);
-                await Task.Delay(50, token);
+                await Task.Delay(55, token);
+                await Task.Delay(55, token);
                 
                 // Wait for context menu to appear with validation
                 for (int attempts = 0; attempts < 10; attempts++)
                 {
-                    await Task.Delay(30, token);
+                    await Task.Delay(33, token);
                     
                     unsafe
                     {
@@ -972,7 +972,7 @@ namespace AutomarketPro.Automation
                 
                 for (int attempts = 0; attempts < 30; attempts++)
                 {
-                    await Task.Delay(60, token);
+                    await Task.Delay(66, token);
                     try
                     {
                         unsafe
@@ -1102,7 +1102,7 @@ namespace AutomarketPro.Automation
                     };
                     atkUnitBase->FireCallback(3, values, true);
                 }
-                await Task.Delay(180, token);
+                await Task.Delay(198, token);
                 return true;
             }
             catch (Exception ex)
@@ -1133,7 +1133,7 @@ namespace AutomarketPro.Automation
                 }
                 
                 // Step 3: Wait for and confirm any confirmation dialog
-                await Task.Delay(300, token); // Give time for confirmation dialog to appear
+                await Task.Delay(330, token); // Give time for confirmation dialog to appear
                 
                 // Check for confirmation dialog (SelectYesno)
                 bool confirmationClicked = false;
@@ -1177,7 +1177,7 @@ namespace AutomarketPro.Automation
                 
                 if (confirmationClicked)
                 {
-                    await Task.Delay(180, token);
+                    await Task.Delay(198, token);
                 }
                 
                 return true;
@@ -1209,7 +1209,7 @@ namespace AutomarketPro.Automation
                 
                 for (int attempts = 0; attempts < 30; attempts++)
                 {
-                    await Task.Delay(60, token);
+                    await Task.Delay(66, token);
                     try
                     {
                         unsafe
@@ -1339,7 +1339,7 @@ namespace AutomarketPro.Automation
                     };
                     atkUnitBase->FireCallback(3, values, true);
                 }
-                await Task.Delay(180, token);
+                await Task.Delay(198, token);
                 return true;
             }
             catch (Exception ex)
@@ -1356,7 +1356,7 @@ namespace AutomarketPro.Automation
             
             for (int attempts = 0; attempts < 40; attempts++)
             {
-                await Task.Delay(60, token);
+                await Task.Delay(66, token);
                 
                 if (token.IsCancellationRequested) break;
                 
@@ -1378,7 +1378,7 @@ namespace AutomarketPro.Automation
                 catch (Exception ex)
                 {
                     LogError?.Invoke($"[AutoMarket] Error checking ItemSearchResult (attempt {attempts}): {ex.Message}", ex);
-                    await Task.Delay(30, token);
+                    await Task.Delay(33, token);
                     continue;
                 }
             }
@@ -1389,13 +1389,13 @@ namespace AutomarketPro.Automation
                 return 0;
             }
             
-            await Task.Delay(120, token);
+            await Task.Delay(132, token);
             if (token.IsCancellationRequested) return 0;
             
             ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.ItemSearchResult itemSearch = null;
             for (int attempts = 0; attempts < 40; attempts++)
             {
-                await Task.Delay(60, token);
+                await Task.Delay(66, token);
                 
                 if (token.IsCancellationRequested) break;
                 
@@ -1428,14 +1428,14 @@ namespace AutomarketPro.Automation
                     catch (Exception ex)
                     {
                         LogError?.Invoke($"[AutoMarket] Error creating ItemSearchResult wrapper (attempt {attempts}): {ex.Message}", ex);
-                        await Task.Delay(30, token);
+                        await Task.Delay(33, token);
                         continue;
                     }
                 }
                 catch (Exception ex)
                 {
                     LogError?.Invoke($"[AutoMarket] Error checking ItemSearchResult (attempt {attempts}): {ex.Message}", ex);
-                    await Task.Delay(30, token);
+                    await Task.Delay(33, token);
                     continue;
                 }
             }
@@ -1586,7 +1586,7 @@ namespace AutomarketPro.Automation
                 {
                     var retainerSell = new ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.RetainerSell(sellAddonPtr);
                     retainerSell.Cancel();
-                    await Task.Delay(500, token);
+                    await Task.Delay(550, token);
                 }
                 
                 if (selectAddonPtr != nint.Zero)
@@ -1599,7 +1599,7 @@ namespace AutomarketPro.Automation
                             selectAddon->Close(true);
                         }
                     }
-                    await Task.Delay(500, token);
+                    await Task.Delay(550, token);
                 }
                 
                 // Handle confirmation dialog that appears when leaving retainer after vendoring
@@ -1639,7 +1639,7 @@ namespace AutomarketPro.Automation
                 
                 if (closedRetainerSellList)
                 {
-                    await Task.Delay(500, token);
+                    await Task.Delay(550, token);
                 }
                 
                 // Close SelectString if it's still open
@@ -1655,7 +1655,7 @@ namespace AutomarketPro.Automation
                 
                 if (closedSelectString)
                 {
-                    await Task.Delay(500, token);
+                    await Task.Delay(550, token);
                 }
                 
                 // Handle confirmation dialog that appears when leaving retainer after vendoring
@@ -1681,7 +1681,7 @@ namespace AutomarketPro.Automation
                 {
                     for (int attempts = 0; attempts < 30; attempts++)
                     {
-                        await Task.Delay(60, token);
+                        await Task.Delay(66, token);
                         
                         unsafe
                         {
@@ -1713,7 +1713,7 @@ namespace AutomarketPro.Automation
             try
             {
                 // Wait a bit for the dialog to appear after closing the retainer window
-                await Task.Delay(300, token);
+                await Task.Delay(330, token);
                 
                 bool confirmationClicked = false;
                 nint yesnoName = nint.Zero;
@@ -1723,7 +1723,7 @@ namespace AutomarketPro.Automation
                     // Wait for the dialog to appear (up to 2 seconds)
                     for (int attempts = 0; attempts < 20; attempts++)
                     {
-                        await Task.Delay(60, token);
+                        await Task.Delay(66, token);
                         
                         unsafe
                         {
@@ -1770,7 +1770,7 @@ namespace AutomarketPro.Automation
                 
                 if (confirmationClicked)
                 {
-                    await Task.Delay(300, token); // Wait for dialog to close
+                    await Task.Delay(330, token); // Wait for dialog to close
                     Log?.Invoke("[AutoMarket] Confirmed leaving retainer");
                 }
                 
@@ -2188,13 +2188,13 @@ namespace AutomarketPro.Automation
                     ECommons.Automation.Callback.Fire(retainerSellList, true, 0, itemIndex, 1);
                 }
                 
-                await Task.Delay(200, token);
+                await Task.Delay(220, token);
                 if (token.IsCancellationRequested) return false;
                 
                 bool contextMenuFound = false;
                 for (int attempts = 0; attempts < 10 && !token.IsCancellationRequested; attempts++)
                 {
-                    await Task.Delay(50, token);
+                    await Task.Delay(55, token);
                     unsafe
                     {
                         if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var contextMenu))
@@ -2237,7 +2237,7 @@ namespace AutomarketPro.Automation
                 
                 for (int attempts = 0; attempts < 30 && !token.IsCancellationRequested; attempts++)
                 {
-                    await Task.Delay(60, token);
+                    await Task.Delay(66, token);
                     if (token.IsCancellationRequested) return false;
                     
                     try
@@ -2363,7 +2363,7 @@ namespace AutomarketPro.Automation
                     ECommons.Automation.Callback.Fire(atkUnitBase, true, 0, 0, 0, 0, 0);
                 }
                 
-                await Task.Delay(200, token);
+                await Task.Delay(220, token);
                 if (token.IsCancellationRequested) return false;
                 return true;
             }
@@ -2387,7 +2387,7 @@ namespace AutomarketPro.Automation
                 // Wait for context menu to appear
                 for (int attempts = 0; attempts < 30; attempts++)
                 {
-                    await Task.Delay(60, token);
+                    await Task.Delay(66, token);
                     try
                     {
                         unsafe
@@ -2507,7 +2507,7 @@ namespace AutomarketPro.Automation
                     atkUnitBase->FireCallback(3, values, true);
                 }
                 
-                await Task.Delay(500, token); // Wait for items to return to inventory
+                await Task.Delay(550, token); // Wait for items to return to inventory
                 return true;
             }
             catch (Exception ex)
@@ -2578,7 +2578,7 @@ namespace AutomarketPro.Automation
                 bool retainerSellListReady = false;
                 for (int attempts = 0; attempts < 30; attempts++)
                 {
-                    await Task.Delay(100, token);
+                    await Task.Delay(110, token);
                     
                     unsafe
                     {
@@ -2629,7 +2629,7 @@ namespace AutomarketPro.Automation
                         continue;
                     }
                     
-                    await Task.Delay(200, token);
+                    await Task.Delay(220, token);
                     if (token.IsCancellationRequested) break;
                     
                     bool uiReady = false;
@@ -2652,7 +2652,7 @@ namespace AutomarketPro.Automation
                         {
                             if (compareAttempt > 0)
                             {
-                                await Task.Delay(180, token);
+                                await Task.Delay(198, token);
                                 if (token.IsCancellationRequested) break;
                             }
                             
@@ -2671,7 +2671,7 @@ namespace AutomarketPro.Automation
                             
                             if (closedItemSearch)
                             {
-                                await Task.Delay(100, token);
+                                await Task.Delay(110, token);
                                 if (token.IsCancellationRequested) break;
                             }
                             
@@ -2700,7 +2700,7 @@ namespace AutomarketPro.Automation
                             
                             if (clickedCompare)
                             {
-                                await Task.Delay(180, token);
+                                await Task.Delay(198, token);
                                 if (token.IsCancellationRequested) break;
                                 
                                 cheapestPrice = await GetLowestPriceFromComparePrices(dummyItem, token);
@@ -2756,7 +2756,7 @@ namespace AutomarketPro.Automation
                             LogError?.Invoke($"[AutoMarket] Error cleaning up windows: {ex.Message}", ex);
                         }
                         
-                        await Task.Delay(200, token);
+                        await Task.Delay(220, token);
                         continue;
                     }
                     
@@ -2791,7 +2791,7 @@ namespace AutomarketPro.Automation
                 
                 for (int attempts = 0; attempts < 30 && !token.IsCancellationRequested; attempts++)
                 {
-                    await Task.Delay(60, token);
+                    await Task.Delay(66, token);
                     if (token.IsCancellationRequested) return false;
                     
                     unsafe
@@ -2852,7 +2852,7 @@ namespace AutomarketPro.Automation
                     ui->Close(true);
                 }
                 
-                await Task.Delay(300, token);
+                await Task.Delay(330, token);
                 if (token.IsCancellationRequested) return false;
                 return true;
             }

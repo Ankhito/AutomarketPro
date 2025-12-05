@@ -132,7 +132,7 @@ namespace AutomarketPro.Services
                 Plugin?.PrintChat("[AutoMarket] Scanning inventory started...");
                 
                 // Small delay before first scan to let game fully initialize (prevents crashes on first use)
-                await Task.Delay(500, CancelToken.Token);
+                await Task.Delay(550, CancelToken.Token);
                 
                 // Run inventory scan on framework thread to avoid race conditions with UI rendering
                 // This is critical - accessing unsafe memory from background threads can cause crashes
@@ -489,7 +489,7 @@ namespace AutomarketPro.Services
                         item.MarketPrice = (uint)(item.VendorPrice * 1.5);
                     }
                     
-                    await Task.Delay(120, cancelToken);
+                    await Task.Delay(132, cancelToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -643,7 +643,7 @@ namespace AutomarketPro.Services
                     item.MarketPrice = (uint)(item.VendorPrice * 1.5);
                 }
                 
-                await Task.Delay(120, cancelToken);
+                await Task.Delay(132, cancelToken);
             }
             catch (OperationCanceledException)
             {

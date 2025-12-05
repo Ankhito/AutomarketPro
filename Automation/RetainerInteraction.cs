@@ -194,7 +194,7 @@ namespace AutomarketPro.Automation
                     return false;
                 }
                 
-                await Task.Delay(60, token);
+                await Task.Delay(66, token);
                 
                 bool eventSent = false;
                 unsafe
@@ -317,7 +317,7 @@ namespace AutomarketPro.Automation
                         
                         for (int attempts = 0; attempts < 100; attempts++)
                         {
-                            await Task.Delay(100, token);
+                            await Task.Delay(110, token);
                             
                             if (token.IsCancellationRequested) break;
                             
@@ -339,7 +339,7 @@ namespace AutomarketPro.Automation
                             catch (Exception ex)
                             {
                                 LogError?.Invoke($"[AutoMarket] Error checking SelectString (attempt {attempts}): {ex.Message}", ex);
-                                await Task.Delay(50, token);
+                                await Task.Delay(55, token);
                                 continue;
                             }
                         }
@@ -366,9 +366,9 @@ namespace AutomarketPro.Automation
                     // Now select "Sell items in your inventory on the market" option directly
                     // Use the SelectString we already found instead of searching again
                     Log?.Invoke("[AutoMarket] SelectString found, now selecting 'Sell items in your inventory on the market' option...");
-                    await Task.Delay(300, token); // Small delay to ensure SelectString is fully ready
+                    await Task.Delay(330, token); // Small delay to ensure SelectString is fully ready
                     
-                    await Task.Delay(200, token);
+                    await Task.Delay(220, token);
                     
                     unsafe
                     {
@@ -487,7 +487,7 @@ namespace AutomarketPro.Automation
                         }
                     }
                     
-                    await Task.Delay(300, token);
+                    await Task.Delay(330, token);
                     return true;
                 }
                 else
