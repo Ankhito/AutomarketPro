@@ -38,6 +38,69 @@ namespace AutomarketPro.Automation
         }
 
         /// <summary>
+        /// Safely executes UI operations on the framework thread with proper exception handling.
+        /// </summary>
+        private async Task<bool> RunOnFrameworkThreadAsync(Func<bool> action)
+        {
+            try
+            {
+                bool result = false;
+                await Plugin.Framework.RunOnFrameworkThread(() =>
+                {
+                    try
+                    {
+                        result = action();
+                    }
+                    catch (System.AccessViolationException ex)
+                    {
+                        LogError?.Invoke("Access violation in UI operation", ex);
+                        result = false;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogError?.Invoke("Error in UI operation", ex);
+                        result = false;
+                    }
+                });
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError?.Invoke("Error running on framework thread", ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Safely executes UI operations on the framework thread (void return).
+        /// </summary>
+        private async Task RunOnFrameworkThreadAsync(Action action)
+        {
+            try
+            {
+                await Plugin.Framework.RunOnFrameworkThread(() =>
+                {
+                    try
+                    {
+                        action();
+                    }
+                    catch (System.AccessViolationException ex)
+                    {
+                        LogError?.Invoke("Access violation in UI operation", ex);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogError?.Invoke("Error in UI operation", ex);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                LogError?.Invoke("Error running on framework thread", ex);
+            }
+        }
+
+        /// <summary>
         /// Safely gets InventoryManager with retry logic (up to 5 attempts).
         /// Returns null if all attempts fail.
         /// </summary>
@@ -319,15 +382,36 @@ namespace AutomarketPro.Automation
                             }
                             
                             bool clickedCompare = false;
-                            unsafe
+                            await RunOnFrameworkThreadAsync(() =>
                             {
-                                if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonRetainerSell>("RetainerSell", out var retainerSellForCompare) 
-                                    && ECommons.GenericHelpers.IsAddonReady(&retainerSellForCompare->AtkUnitBase))
+                                unsafe
                                 {
-                                    ECommons.Automation.Callback.Fire(&retainerSellForCompare->AtkUnitBase, true, 4);
-                                    clickedCompare = true;
+                                    try
+                                    {
+                                        // Re-validate before accessing
+                                        if (!ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonRetainerSell>("RetainerSell", out var retainerSellForCompare))
+                                        {
+                                            return;
+                                        }
+                                        
+                                        if (!ECommons.GenericHelpers.IsAddonReady(&retainerSellForCompare->AtkUnitBase))
+                                        {
+                                            return;
+                                        }
+                                        
+                                        ECommons.Automation.Callback.Fire(&retainerSellForCompare->AtkUnitBase, true, 4);
+                                        clickedCompare = true;
+                                    }
+                                    catch (System.AccessViolationException ex)
+                                    {
+                                        LogError?.Invoke("Access violation clicking compare prices", ex);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        LogError?.Invoke($"Error clicking compare prices: {ex.Message}", ex);
+                                    }
                                 }
-                            }
+                            });
                             
                             if (clickedCompare)
                             {
@@ -364,16 +448,37 @@ namespace AutomarketPro.Automation
                     {
                         await Task.Delay(66, token);
                         
-                        unsafe
+                        bool ready = await RunOnFrameworkThreadAsync(() =>
                         {
-                            if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonRetainerSell>("RetainerSell", out var tempRetainerSell) 
-                                && ECommons.GenericHelpers.IsAddonReady(&tempRetainerSell->AtkUnitBase))
+                            unsafe
                             {
-                                retainerSellPtr = (nint)tempRetainerSell;
-                                retainerSellReady = true;
-                                Log?.Invoke($"[AutoMarket] RetainerSell addon is ready (attempt {attempts + 1})");
-                                break;
+                                try
+                                {
+                                    if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonRetainerSell>("RetainerSell", out var tempRetainerSell) 
+                                        && tempRetainerSell != null
+                                        && ECommons.GenericHelpers.IsAddonReady(&tempRetainerSell->AtkUnitBase))
+                                    {
+                                        retainerSellPtr = (nint)tempRetainerSell;
+                                        return true;
+                                    }
+                                    return false;
+                                }
+                                catch (System.AccessViolationException)
+                                {
+                                    return false;
+                                }
+                                catch
+                                {
+                                    return false;
+                                }
                             }
+                        });
+                        
+                        if (ready)
+                        {
+                            retainerSellReady = true;
+                            Log?.Invoke($"[AutoMarket] RetainerSell addon is ready (attempt {attempts + 1})");
+                            break;
                         }
                     }
                     
@@ -383,83 +488,106 @@ namespace AutomarketPro.Automation
                         break;
                     }
                     
-                    unsafe
+                    bool success = await RunOnFrameworkThreadAsync(() =>
                     {
-                        try
+                        unsafe
                         {
-                            // Re-validate RetainerSell addon before use (pointer may have become stale after delays)
-                            if (!ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonRetainerSell>("RetainerSell", out var retainerSell)
-                                || !ECommons.GenericHelpers.IsAddonReady(&retainerSell->AtkUnitBase))
+                            try
                             {
-                                LogError?.Invoke("[AutoMarket] RetainerSell addon not found or not ready when trying to set price", null);
-                                break;
-                            }
-                            
-                            if (ECommons.GenericHelpers.TryGetAddonByName<AtkUnitBase>("ItemSearchResult", out var itemSearchAddon))
-                            {
-                                itemSearchAddon->Close(true);
-                            }
-                            
-                            var ui = &retainerSell->AtkUnitBase;
-                            if (ui == null)
-                            {
-                                LogError?.Invoke("[AutoMarket] RetainerSell AtkUnitBase is null", null);
-                                break;
-                            }
-                            
-                            if (lowestPrice > 0)
-                            {
-                                // Null check for AskingPrice before SetValue
-                                if (retainerSell->AskingPrice == null)
+                                // Re-validate RetainerSell addon before use (pointer may have become stale after delays)
+                                if (!ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonRetainerSell>("RetainerSell", out var retainerSell)
+                                    || retainerSell == null
+                                    || !ECommons.GenericHelpers.IsAddonReady(&retainerSell->AtkUnitBase))
                                 {
-                                    LogError?.Invoke("[AutoMarket] RetainerSell AskingPrice is null", null);
-                                    break;
+                                    LogError?.Invoke("[AutoMarket] RetainerSell addon not found or not ready when trying to set price", null);
+                                    return false;
                                 }
                                 
-                                retainerSell->AskingPrice->SetValue((int)lowestPrice);
-                                
-                                // Set quantity for this batch (only if > 1)
-                                if (batchQuantity > 1)
+                                // Close ItemSearchResult if open
+                                if (ECommons.GenericHelpers.TryGetAddonByName<AtkUnitBase>("ItemSearchResult", out var itemSearchAddon)
+                                    && itemSearchAddon != null
+                                    && ECommons.GenericHelpers.IsAddonReady(itemSearchAddon))
                                 {
-                                    // Null check for Quantity before SetValue
-                                    if (retainerSell->Quantity == null)
+                                    itemSearchAddon->Close(true);
+                                    // Small delay after closing
+                                    System.Threading.Thread.Sleep(50);
+                                }
+                                
+                                var ui = &retainerSell->AtkUnitBase;
+                                if (ui == null)
+                                {
+                                    LogError?.Invoke("[AutoMarket] RetainerSell AtkUnitBase is null", null);
+                                    return false;
+                                }
+                                
+                                if (lowestPrice > 0)
+                                {
+                                    // Null check for AskingPrice before SetValue
+                                    if (retainerSell->AskingPrice == null)
                                     {
-                                        LogError?.Invoke("[AutoMarket] RetainerSell Quantity is null", null);
-                                        break;
+                                        LogError?.Invoke("[AutoMarket] RetainerSell AskingPrice is null", null);
+                                        return false;
                                     }
                                     
-                                    retainerSell->Quantity->SetValue(batchQuantity);
-                                }
-                                
-                                ECommons.Automation.Callback.Fire(ui, true, 0);
-                                ui->Close(true);
-                                
-                                // Successfully listed this batch
-                                // Subtract the actual quantity we listed (batchQuantity, which is already capped by slot quantity)
-                                remainingQuantity -= batchQuantity;
-                                totalListed += batchQuantity;
-                                anyBatchSucceeded = true;
-                                firstBatch = false;
-                                
-                                Log?.Invoke($"[AutoMarket] Listed {batchQuantity} of {item.ItemName} from slot {currentInventoryType}:{currentInventorySlot} (slot had {actualSlotQuantity}, remaining total: {remainingQuantity}, total listed so far: {totalListed})");
-                            }
-                            else
-                            {
-                                LogError?.Invoke("[AutoMarket] No price to set", null);
-                                if (ui != null)
-                                {
-                                    ECommons.Automation.Callback.Fire(ui, true, 1); // cancel
+                                    retainerSell->AskingPrice->SetValue((int)lowestPrice);
+                                    
+                                    // Set quantity for this batch (only if > 1)
+                                    if (batchQuantity > 1)
+                                    {
+                                        // Null check for Quantity before SetValue
+                                        if (retainerSell->Quantity == null)
+                                        {
+                                            LogError?.Invoke("[AutoMarket] RetainerSell Quantity is null", null);
+                                            return false;
+                                        }
+                                        
+                                        retainerSell->Quantity->SetValue(batchQuantity);
+                                    }
+                                    
+                                    ECommons.Automation.Callback.Fire(ui, true, 0);
                                     ui->Close(true);
+                                    
+                                    // Successfully listed this batch
+                                    // Subtract the actual quantity we listed (batchQuantity, which is already capped by slot quantity)
+                                    remainingQuantity -= batchQuantity;
+                                    totalListed += batchQuantity;
+                                    anyBatchSucceeded = true;
+                                    firstBatch = false;
+                                    
+                                    Log?.Invoke($"[AutoMarket] Listed {batchQuantity} of {item.ItemName} from slot {currentInventoryType}:{currentInventorySlot} (slot had {actualSlotQuantity}, remaining total: {remainingQuantity}, total listed so far: {totalListed})");
+                                    return true;
                                 }
-                                break;
+                                else
+                                {
+                                    LogError?.Invoke("[AutoMarket] No price to set", null);
+                                    if (ui != null)
+                                    {
+                                        ECommons.Automation.Callback.Fire(ui, true, 1); // cancel
+                                        ui->Close(true);
+                                    }
+                                    return false;
+                                }
+                            }
+                            catch (System.AccessViolationException ex)
+                            {
+                                LogError?.Invoke("Access violation setting price", ex);
+                                return false;
+                            }
+                            catch (Exception ex)
+                            {
+                                LogError?.Invoke($"[AutoMarket] Exception setting price and confirming: {ex.Message}", ex);
+                                return false;
                             }
                         }
-                        catch (Exception ex)
-                        {
-                            LogError?.Invoke($"[AutoMarket] Exception setting price and confirming: {ex.Message}", ex);
-                            break;
-                        }
+                    });
+                    
+                    if (!success)
+                    {
+                        break;
                     }
+                    
+                    // Add delay after UI operations
+                    await Task.Delay(100, token);
                     
                     // If there's more to list, check if current slot is depleted and find next stack if needed
                     if (remainingQuantity > 0)
@@ -525,39 +653,100 @@ namespace AutomarketPro.Automation
         
         /// <summary>
         /// Closes any existing context menu to prevent conflicts when opening a new one.
+        /// Runs on framework thread for safety.
         /// </summary>
-        private unsafe bool CloseExistingContextMenu()
+        private async Task<bool> CloseExistingContextMenu()
         {
-            try
+            return await RunOnFrameworkThreadAsync(() =>
             {
-                if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var contextMenuAddon))
+                unsafe
                 {
-                    if (ECommons.GenericHelpers.IsAddonReady(&contextMenuAddon->AtkUnitBase))
+                    try
                     {
+                        // Re-validate before accessing
+                        if (!ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var contextMenuAddon))
+                        {
+                            return false;
+                        }
+                        
+                        if (!ECommons.GenericHelpers.IsAddonReady(&contextMenuAddon->AtkUnitBase))
+                        {
+                            return false;
+                        }
+                        
                         // Close the existing context menu by pressing Escape or clicking outside
                         contextMenuAddon->AtkUnitBase.Close(true);
                         return true;
                     }
+                    catch (System.AccessViolationException)
+                    {
+                        // Ignore access violations when trying to close context menu
+                        return false;
+                    }
+                    catch
+                    {
+                        // Ignore errors when trying to close context menu
+                        return false;
+                    }
                 }
-            }
-            catch
-            {
-                // Ignore errors when trying to close context menu
-            }
-            return false;
+            });
         }
 
         /// <summary>
         /// Verifies that the retainer UI is in a valid state before opening context menus.
+        /// Runs on framework thread for safety.
         /// </summary>
-        private unsafe bool IsRetainerUIReady()
+        private async Task<bool> IsRetainerUIReady()
+        {
+            return await RunOnFrameworkThreadAsync(() =>
+            {
+                unsafe
+                {
+                    try
+                    {
+                        // Check if RetainerSellList is open and ready (the main retainer inventory window)
+                        if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("RetainerSellList", out var retainerSellList))
+                        {
+                            if (retainerSellList != null && ECommons.GenericHelpers.IsAddonReady(retainerSellList) && retainerSellList->IsVisible)
+                            {
+                                return true;
+                            }
+                        }
+                        
+                        // Also check if RetainerSell is open (the listing window)
+                        if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("RetainerSell", out var retainerSell))
+                        {
+                            if (retainerSell != null && ECommons.GenericHelpers.IsAddonReady(retainerSell) && retainerSell->IsVisible)
+                            {
+                                return true;
+                            }
+                        }
+                        
+                        return false;
+                    }
+                    catch (System.AccessViolationException)
+                    {
+                        return false;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                }
+            });
+        }
+
+        /// <summary>
+        /// Synchronous version of IsRetainerUIReady for use within framework thread context.
+        /// </summary>
+        private unsafe bool IsRetainerUIReadySync()
         {
             try
             {
                 // Check if RetainerSellList is open and ready (the main retainer inventory window)
                 if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("RetainerSellList", out var retainerSellList))
                 {
-                    if (ECommons.GenericHelpers.IsAddonReady(retainerSellList) && retainerSellList->IsVisible)
+                    if (retainerSellList != null && ECommons.GenericHelpers.IsAddonReady(retainerSellList) && retainerSellList->IsVisible)
                     {
                         return true;
                     }
@@ -566,12 +755,16 @@ namespace AutomarketPro.Automation
                 // Also check if RetainerSell is open (the listing window)
                 if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("RetainerSell", out var retainerSell))
                 {
-                    if (ECommons.GenericHelpers.IsAddonReady(retainerSell) && retainerSell->IsVisible)
+                    if (retainerSell != null && ECommons.GenericHelpers.IsAddonReady(retainerSell) && retainerSell->IsVisible)
                     {
                         return true;
                     }
                 }
                 
+                return false;
+            }
+            catch (System.AccessViolationException)
+            {
                 return false;
             }
             catch
@@ -589,11 +782,7 @@ namespace AutomarketPro.Automation
             try
             {
                 // Step 1: Verify retainer UI is ready
-                bool uiReady = false;
-                unsafe
-                {
-                    uiReady = IsRetainerUIReady();
-                }
+                bool uiReady = await IsRetainerUIReady();
                 if (!uiReady)
                 {
                     LogError?.Invoke("[AutoMarket] Retainer UI is not ready - cannot open context menu", null);
@@ -601,11 +790,7 @@ namespace AutomarketPro.Automation
                 }
                 
                 // Step 2: Close any existing context menu to prevent conflicts
-                bool closedMenu = false;
-                unsafe
-                {
-                    closedMenu = CloseExistingContextMenu();
-                }
+                bool closedMenu = await CloseExistingContextMenu();
                 if (closedMenu)
                 {
                     Log?.Invoke("[AutoMarket] Closed existing context menu before opening new one");
@@ -660,6 +845,7 @@ namespace AutomarketPro.Automation
                 
                 // Step 4: Verify AgentInventoryContext is in a valid state and open context menu
                 bool agentValid = false;
+                nint agentPtr = nint.Zero;
                 unsafe
                 {
                     var agent = GetAgentInventoryContextSafe();
@@ -668,38 +854,72 @@ namespace AutomarketPro.Automation
                         LogError?.Invoke("[AutoMarket] AgentInventoryContext is null after retries", null);
                         return false;
                     }
-                    
+                    agentPtr = (nint)agent;
                     agentValid = true;
-                    
-                    // Step 5: Add a small delay to ensure UI is stable (before opening)
-                    // We'll do this outside unsafe block
-                    
-                    // Step 6: Double-check that no context menu is open (race condition check)
-                    if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var existingMenu))
+                }
+                
+                // Step 5: Add a small delay to ensure UI is stable (before opening)
+                await Task.Delay(55, token);
+                
+                // Step 6: Double-check that no context menu is open (race condition check)
+                await RunOnFrameworkThreadAsync(() =>
                     {
-                        if (ECommons.GenericHelpers.IsAddonReady(&existingMenu->AtkUnitBase))
+                        unsafe
                         {
-                            Log?.Invoke("[AutoMarket] Context menu still open, closing it...");
-                            existingMenu->AtkUnitBase.Close(true);
+                            try
+                            {
+                                if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var existingMenu))
+                                {
+                                    if (ECommons.GenericHelpers.IsAddonReady(&existingMenu->AtkUnitBase))
+                                    {
+                                        Log?.Invoke("[AutoMarket] Context menu still open, closing it...");
+                                        existingMenu->AtkUnitBase.Close(true);
+                                    }
+                                }
+                            }
+                            catch (System.AccessViolationException)
+                            {
+                                // Ignore access violations
+                            }
+                            catch { }
                         }
-                    }
+                    });
                     
                     // Step 7: Open context menu using AgentInventoryContext
-                    var inventoryManager = GetInventoryManagerSafe();
-                    if (inventoryManager != null)
+                    await RunOnFrameworkThreadAsync(() =>
                     {
-                        var container = inventoryManager->GetInventoryContainer(inventoryType);
-                        if (container != null)
+                        unsafe
                         {
-                            var slotItem = container->GetInventorySlot(slot);
-                            if (slotItem != null)
+                            try
                             {
-                                Log?.Invoke($"[AutoMarket] Opening context menu for {item.ItemName} at {inventoryType} slot {slot} (quantity: {slotItem->Quantity})");
+                                var inventoryManager = GetInventoryManagerSafe();
+                                if (inventoryManager != null)
+                                {
+                                    var container = inventoryManager->GetInventoryContainer(inventoryType);
+                                    if (container != null)
+                                    {
+                                        var slotItem = container->GetInventorySlot(slot);
+                                        if (slotItem != null)
+                                        {
+                                            Log?.Invoke($"[AutoMarket] Opening context menu for {item.ItemName} at {inventoryType} slot {slot} (quantity: {slotItem->Quantity})");
+                                        }
+                                    }
+                                }
+                                if (agentPtr == nint.Zero) return;
+                                var agent = (AgentInventoryContext*)agentPtr.ToPointer();
+                                if (agent == null) return;
+                                agent->OpenForItemSlot(inventoryType, slot, 0, 0);
+                            }
+                            catch (System.AccessViolationException ex)
+                            {
+                                LogError?.Invoke("Access violation opening context menu", ex);
+                            }
+                            catch (Exception ex)
+                            {
+                                LogError?.Invoke($"[AutoMarket] Error opening context menu: {ex.Message}", ex);
                             }
                         }
-                    }
-                    agent->OpenForItemSlot(inventoryType, slot, 0, 0);
-                }
+                    });
                 
                 if (!agentValid)
                 {
@@ -718,16 +938,36 @@ namespace AutomarketPro.Automation
                 {
                     await Task.Delay(33, token);
                     
-                    unsafe
+                    bool menuReady = await RunOnFrameworkThreadAsync(() =>
                     {
-                        if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var contextMenuAddon))
+                        unsafe
                         {
-                            if (ECommons.GenericHelpers.IsAddonReady(&contextMenuAddon->AtkUnitBase))
+                            try
                             {
-                                Log?.Invoke($"[AutoMarket] Context menu opened successfully (attempt {attempts + 1})");
-                                return true;
+                                if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var contextMenuAddon))
+                                {
+                                    if (contextMenuAddon != null && ECommons.GenericHelpers.IsAddonReady(&contextMenuAddon->AtkUnitBase))
+                                    {
+                                        Log?.Invoke($"[AutoMarket] Context menu opened successfully (attempt {attempts + 1})");
+                                        return true;
+                                    }
+                                }
+                                return false;
+                            }
+                            catch (System.AccessViolationException)
+                            {
+                                return false;
+                            }
+                            catch
+                            {
+                                return false;
                             }
                         }
+                    });
+                    
+                    if (menuReady)
+                    {
+                        return true;
                     }
                 }
                 
@@ -868,11 +1108,7 @@ namespace AutomarketPro.Automation
                 }
                 
                 // Verify retainer UI is ready before opening context menu
-                bool uiReady = false;
-                unsafe
-                {
-                    uiReady = IsRetainerUIReady();
-                }
+                bool uiReady = await IsRetainerUIReady();
                 if (!uiReady)
                 {
                     LogError?.Invoke("[AutoMarket] Retainer UI is not ready - cannot open context menu", null);
@@ -880,11 +1116,7 @@ namespace AutomarketPro.Automation
                 }
                 
                 // Close any existing context menu
-                bool closedMenu = false;
-                unsafe
-                {
-                    closedMenu = CloseExistingContextMenu();
-                }
+                bool closedMenu = await CloseExistingContextMenu();
                 if (closedMenu)
                 {
                     await Task.Delay(110, token);
@@ -892,6 +1124,7 @@ namespace AutomarketPro.Automation
                 
                 // Open context menu using AgentInventoryContext
                 bool agentValid = false;
+                nint agentPtr = nint.Zero;
                 unsafe
                 {
                     var agent = GetAgentInventoryContextSafe();
@@ -900,21 +1133,61 @@ namespace AutomarketPro.Automation
                         LogError?.Invoke("[AutoMarket] AgentInventoryContext is null after retries", null);
                         return false;
                     }
-                    
+                    agentPtr = (nint)agent;
                     agentValid = true;
-                    
-                    // Double-check no context menu is open
-                    if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var existingMenu))
+                }
+                
+                // Double-check no context menu is open
+                await RunOnFrameworkThreadAsync(() =>
+                {
+                    unsafe
                     {
-                        if (ECommons.GenericHelpers.IsAddonReady(&existingMenu->AtkUnitBase))
+                        try
                         {
-                            existingMenu->AtkUnitBase.Close(true);
+                            if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var existingMenu)
+                                && existingMenu != null
+                                && ECommons.GenericHelpers.IsAddonReady(&existingMenu->AtkUnitBase))
+                            {
+                                existingMenu->AtkUnitBase.Close(true);
+                            }
+                        }
+                        catch (System.AccessViolationException) { }
+                        catch { }
+                    }
+                });
+                
+                var foundTypeLocal = foundType;
+                var foundSlotLocal = foundSlot;
+                await RunOnFrameworkThreadAsync(() =>
+                {
+                    unsafe
+                    {
+                        try
+                        {
+                            if (agentPtr == nint.Zero)
+                            {
+                                return;
+                            }
+                            
+                            var agent = (AgentInventoryContext*)agentPtr.ToPointer();
+                            if (agent == null)
+                            {
+                                return;
+                            }
+                            
+                            Log?.Invoke($"[AutoMarket] Opening context menu for item at {foundTypeLocal} slot {foundSlotLocal}");
+                            agent->OpenForItemSlot(foundTypeLocal, foundSlotLocal, 0, 0);
+                        }
+                        catch (System.AccessViolationException ex)
+                        {
+                            LogError?.Invoke("Access violation opening context menu", ex);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogError?.Invoke($"Error opening context menu: {ex.Message}", ex);
                         }
                     }
-                    
-                    Log?.Invoke($"[AutoMarket] Opening context menu for item at {foundType} slot {foundSlot}");
-                    agent->OpenForItemSlot(foundType, foundSlot, 0, 0);
-                }
+                });
                 
                 if (!agentValid)
                 {
@@ -930,15 +1203,34 @@ namespace AutomarketPro.Automation
                 {
                     await Task.Delay(33, token);
                     
-                    unsafe
+                    bool menuReady = await RunOnFrameworkThreadAsync(() =>
                     {
-                        if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var contextMenuAddon))
+                        unsafe
                         {
-                            if (ECommons.GenericHelpers.IsAddonReady(&contextMenuAddon->AtkUnitBase))
+                            try
                             {
-                                return true;
+                                if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var contextMenuAddon)
+                                    && contextMenuAddon != null
+                                    && ECommons.GenericHelpers.IsAddonReady(&contextMenuAddon->AtkUnitBase))
+                                {
+                                    return true;
+                                }
+                                return false;
+                            }
+                            catch (System.AccessViolationException)
+                            {
+                                return false;
+                            }
+                            catch
+                            {
+                                return false;
                             }
                         }
+                    });
+                    
+                    if (menuReady)
+                    {
+                        return true;
                     }
                 }
                 
@@ -961,13 +1253,11 @@ namespace AutomarketPro.Automation
                 nint contextMenuPtr = nint.Zero;
                 
                 // First, verify retainer UI is still ready
-                unsafe
+                bool uiReady = await IsRetainerUIReady();
+                if (!uiReady)
                 {
-                    if (!IsRetainerUIReady())
-                    {
-                        LogError?.Invoke("[AutoMarket] Retainer UI is not ready when trying to click Put Up for Sale", null);
-                        return false;
-                    }
+                    LogError?.Invoke("[AutoMarket] Retainer UI is not ready when trying to click Put Up for Sale", null);
+                    return false;
                 }
                 
                 for (int attempts = 0; attempts < 30; attempts++)
@@ -1086,8 +1376,8 @@ namespace AutomarketPro.Automation
                         return false;
                     }
                     
-                    // Verify retainer UI is still ready
-                    if (!IsRetainerUIReady())
+                    // Verify retainer UI is still ready (synchronous check since we're already on framework thread)
+                    if (!IsRetainerUIReadySync())
                     {
                         LogError?.Invoke("[AutoMarket] Retainer UI is not ready when clicking context menu", null);
                         return false;
@@ -1198,13 +1488,11 @@ namespace AutomarketPro.Automation
                 nint contextMenuPtr = nint.Zero;
                 
                 // First, verify retainer UI is still ready
-                unsafe
+                bool uiReady = await IsRetainerUIReady();
+                if (!uiReady)
                 {
-                    if (!IsRetainerUIReady())
-                    {
-                        LogError?.Invoke("[AutoMarket] Retainer UI is not ready when trying to click Have Retainer Sell Items", null);
-                        return false;
-                    }
+                    LogError?.Invoke("[AutoMarket] Retainer UI is not ready when trying to click Have Retainer Sell Items", null);
+                    return false;
                 }
                 
                 for (int attempts = 0; attempts < 30; attempts++)
@@ -1323,8 +1611,8 @@ namespace AutomarketPro.Automation
                         return false;
                     }
                     
-                    // Verify retainer UI is still ready
-                    if (!IsRetainerUIReady())
+                    // Verify retainer UI is still ready (synchronous check since we're already on framework thread)
+                    if (!IsRetainerUIReadySync())
                     {
                         LogError?.Invoke("[AutoMarket] Retainer UI is not ready when clicking context menu", null);
                         return false;
@@ -1457,6 +1745,7 @@ namespace AutomarketPro.Automation
             // Find lowest price (considering HQ/NQ)
             uint lowestPrice = uint.MaxValue;
             int parsedCount = 0;
+            var parsedPrices = new List<uint>();
             
             // Parse entries with defensive checks
             var entries = itemSearch.Entries;
@@ -1517,6 +1806,7 @@ namespace AutomarketPro.Automation
                                     
                                     Log?.Invoke($"[AutoMarket]   Entry {i} price: {price:N0} gil ({(isHQ ? "HQ" : "NQ")})");
                                     
+                                    parsedPrices.Add(price);
                                     if (price < lowestPrice)
                                     {
                                         lowestPrice = price;
@@ -1551,8 +1841,21 @@ namespace AutomarketPro.Automation
                 return 0;
             }
             
-            Log?.Invoke($"[AutoMarket] Found lowest price: {lowestPrice:N0} gil (parsed {parsedCount} entries)");
-            return lowestPrice;
+            // Basic outlier guard: if the lowest price is a steep outlier (<50% of next lowest), ignore it
+            uint adjustedLowest = lowestPrice;
+            if (parsedPrices.Count >= 2)
+            {
+                parsedPrices.Sort();
+                uint secondLowest = parsedPrices[1];
+                if (parsedPrices[0] * 2 < secondLowest)
+                {
+                    Log?.Invoke($"[AutoMarket] Ignoring outlier lowest price {parsedPrices[0]:N0} gil; using second lowest {secondLowest:N0} gil");
+                    adjustedLowest = secondLowest;
+                }
+            }
+            
+            Log?.Invoke($"[AutoMarket] Found lowest price: {adjustedLowest:N0} gil (parsed {parsedCount} entries)");
+            return adjustedLowest;
         }
         
         public async Task<bool> CloseRetainerWindow(bool weVendored, CancellationToken token)
@@ -2632,11 +2935,7 @@ namespace AutomarketPro.Automation
                     await Task.Delay(220, token);
                     if (token.IsCancellationRequested) break;
                     
-                    bool uiReady = false;
-                    unsafe
-                    {
-                        uiReady = IsRetainerUIReady();
-                    }
+                    bool uiReady = await IsRetainerUIReady();
                     if (!uiReady)
                     {
                         LogError?.Invoke("[AutoMarket] Retainer UI is not ready before Compare Price", null);
@@ -2676,13 +2975,15 @@ namespace AutomarketPro.Automation
                             }
                             
                             bool clickedCompare = false;
+                            bool uiReadyCheck = await IsRetainerUIReady();
+                            if (!uiReadyCheck)
+                            {
+                                LogError?.Invoke("[AutoMarket] Retainer UI is not ready when clicking Compare Price", null);
+                                break;
+                            }
+                            
                             unsafe
                             {
-                                if (!IsRetainerUIReady())
-                                {
-                                    LogError?.Invoke("[AutoMarket] Retainer UI is not ready when clicking Compare Price", null);
-                                    break;
-                                }
                                 
                                 if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonRetainerSell>("RetainerSell", out var retainerSell))
                                 {

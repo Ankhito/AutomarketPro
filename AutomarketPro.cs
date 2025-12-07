@@ -384,12 +384,27 @@ namespace AutomarketPro
                                         {
                                             try
                                             {
-                                                var talkMaster = new ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.Talk((nint)talkAddon);
-                                                talkMaster.Click();
+                                                // Re-validate before accessing
+                                                if (ECommons.GenericHelpers.IsAddonReady(talkAddon))
+                                                {
+                                                    var talkMaster = new ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.Talk((nint)talkAddon);
+                                                    talkMaster.Click();
+                                                }
                                             }
-                                            catch { }
+                                            catch (System.AccessViolationException)
+                                            {
+                                                // Ignore access violations in Talk addon
+                                            }
+                                            catch (Exception)
+                                            {
+                                                // Ignore other errors
+                                            }
                                             break; // Found and clicked, exit loop
                                         }
+                                    }
+                                    catch (System.AccessViolationException)
+                                    {
+                                        continue; // Skip on access violation
                                     }
                                     catch { continue; }
                                 }
@@ -399,11 +414,19 @@ namespace AutomarketPro
                         {
                             if (talkName != nint.Zero)
                             {
-                                System.Runtime.InteropServices.Marshal.FreeHGlobal(talkName);
+                                try
+                                {
+                                    System.Runtime.InteropServices.Marshal.FreeHGlobal(talkName);
+                                }
+                                catch { }
                             }
                         }
                     }
                 }
+            }
+            catch (System.AccessViolationException)
+            {
+                // Ignore access violations in Tick
             }
             catch { }
         }
