@@ -7,9 +7,9 @@
     "RepoUrl": "https://github.com/bimilbimil/AutomarketPro",
     "Tags": [ "market", "automation", "retainer", "universalis" ],
     "CategoryTags": [ "Utility", "Automation" ],
-    "AssemblyVersion": "1.0.0.0",
+    "AssemblyVersion": "1.0.0.12",
     "ApplicableVersion": "any",
-    "DalamudApiLevel": 13,
+    "DalamudApiLevel": 15,
     "HasConfigUi": true,
     "HasMainUi": true,
     "IconUrl": "https://raw.githubusercontent.com/bimilbimil/AutomarketPro/main/automarketlogo_icon_64.png"

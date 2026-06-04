@@ -13,7 +13,7 @@ using AutomarketPro.Models;
 using AutomarketPro.Services;
 using InventoryManager = FFXIVClientStructs.FFXIV.Client.Game.InventoryManager;
 using AgentInventoryContext = FFXIVClientStructs.FFXIV.Client.UI.Agent.AgentInventoryContext;
-using AtkValueType = FFXIVClientStructs.FFXIV.Component.GUI.ValueType;
+using AtkValueType = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType;
 
 namespace AutomarketPro.Automation
 {
@@ -158,34 +158,7 @@ namespace AutomarketPro.Automation
             return null;
         }
 
-        /// <summary>
-        /// Safely gets RaptureAtkUnitManager with retry logic (up to 5 attempts).
-        /// Returns null if all attempts fail.
-        /// </summary>
-        private unsafe FFXIVClientStructs.FFXIV.Client.UI.RaptureAtkUnitManager* GetRaptureAtkUnitManagerSafe()
-        {
-            for (int attempt = 0; attempt < 5; attempt++)
-            {
-                try
-                {
-                    var manager = FFXIVClientStructs.FFXIV.Client.UI.RaptureAtkUnitManager.Instance();
-                    if (manager != null)
-                    {
-                        return manager;
-                    }
-                }
-                catch
-                {
-                    // Continue to next attempt
-                }
-                
-                if (attempt < 4)
-                {
-                    System.Threading.Thread.Sleep(10); // Small delay between attempts
-                }
-            }
-            return null;
-        }
+
 
         /// <summary>
         /// Safely gets an inventory container with re-validation. Re-validates InventoryManager before each attempt.
@@ -509,8 +482,6 @@ namespace AutomarketPro.Automation
                                     && ECommons.GenericHelpers.IsAddonReady(itemSearchAddon))
                                 {
                                     itemSearchAddon->Close(true);
-                                    // Small delay after closing
-                                    System.Threading.Thread.Sleep(50);
                                 }
                                 
                                 var ui = &retainerSell->AtkUnitBase;
@@ -892,7 +863,7 @@ namespace AutomarketPro.Automation
                         {
                             try
                             {
-                                var inventoryManager = GetInventoryManagerSafe();
+                                var inventoryManager = InventoryManager.Instance();
                                 if (inventoryManager != null)
                                 {
                                     var container = inventoryManager->GetInventoryContainer(inventoryType);
@@ -1386,9 +1357,9 @@ namespace AutomarketPro.Automation
                     // Based on ECommons ContextMenu.Entry.Select(): values [0, Index, 0]
                     var values = stackalloc FFXIVClientStructs.FFXIV.Component.GUI.AtkValue[3]
                     {
-                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int, Int = 0 },
-                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int, Int = foundIndex },
-                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int, Int = 0 }
+                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int, Int = 0 },
+                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int, Int = foundIndex },
+                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int, Int = 0 }
                     };
                     atkUnitBase->FireCallback(3, values, true);
                 }
@@ -1427,41 +1398,15 @@ namespace AutomarketPro.Automation
                 
                 // Check for confirmation dialog (SelectYesno)
                 bool confirmationClicked = false;
-                nint yesnoName = nint.Zero;
                 unsafe
                 {
-                    try
+                    if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("SelectYesno", out var yesnoAddon)
+                        && yesnoAddon->IsVisible
+                        && ECommons.GenericHelpers.IsAddonReady(yesnoAddon))
                     {
-                        // Try to find and confirm SelectYesno dialog if present
-                        var raptureMgr = GetRaptureAtkUnitManagerSafe();
-                        if (raptureMgr != null)
-                        {
-                            yesnoName = System.Runtime.InteropServices.Marshal.StringToHGlobalAnsi("SelectYesno");
-                            if (yesnoName != nint.Zero)
-                            {
-                                var yesnoBytes = (byte*)yesnoName.ToPointer();
-                                
-                                for (int i = 1; i < 20; i++)
-                                {
-                                    var yesnoAddon = raptureMgr->GetAddonByName(yesnoBytes, i);
-                                    if (yesnoAddon != null && yesnoAddon->IsVisible && ECommons.GenericHelpers.IsAddonReady(yesnoAddon))
-                                    {
-                                        Log?.Invoke("[AutoMarket] Found confirmation dialog, clicking Yes...");
-                                        // Click Yes (button index 0)
-                                        ECommons.Automation.Callback.Fire(yesnoAddon, true, 0);
-                                        confirmationClicked = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    finally
-                    {
-                        if (yesnoName != nint.Zero)
-                        {
-                            System.Runtime.InteropServices.Marshal.FreeHGlobal(yesnoName);
-                        }
+                        Log?.Invoke("[AutoMarket] Found confirmation dialog, clicking Yes...");
+                        ECommons.Automation.Callback.Fire(yesnoAddon, true, 0);
+                        confirmationClicked = true;
                     }
                 }
                 
@@ -1621,9 +1566,9 @@ namespace AutomarketPro.Automation
                     // Based on ECommons ContextMenu.Entry.Select(): values [0, Index, 0]
                     var values = stackalloc FFXIVClientStructs.FFXIV.Component.GUI.AtkValue[3]
                     {
-                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int, Int = 0 },
-                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int, Int = foundIndex },
-                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int, Int = 0 }
+                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int, Int = 0 },
+                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int, Int = foundIndex },
+                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int, Int = 0 }
                     };
                     atkUnitBase->FireCallback(3, values, true);
                 }
@@ -2019,55 +1964,27 @@ namespace AutomarketPro.Automation
                 await Task.Delay(330, token);
                 
                 bool confirmationClicked = false;
-                nint yesnoName = nint.Zero;
-                
-                try
+
+                // Wait for the dialog to appear (up to 2 seconds)
+                for (int attempts = 0; attempts < 20; attempts++)
                 {
-                    // Wait for the dialog to appear (up to 2 seconds)
-                    for (int attempts = 0; attempts < 20; attempts++)
+                    await Task.Delay(66, token);
+
+                    unsafe
                     {
-                        await Task.Delay(66, token);
-                        
-                        unsafe
+                        if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("SelectYesno", out var yesnoAddon)
+                            && yesnoAddon->IsVisible
+                            && ECommons.GenericHelpers.IsAddonReady(yesnoAddon))
                         {
-                            var raptureMgr = GetRaptureAtkUnitManagerSafe();
-                            if (raptureMgr != null)
-                            {
-                                if (yesnoName == nint.Zero)
-                                {
-                                    yesnoName = System.Runtime.InteropServices.Marshal.StringToHGlobalAnsi("SelectYesno");
-                                }
-                                if (yesnoName != nint.Zero)
-                                {
-                                    var yesnoBytes = (byte*)yesnoName.ToPointer();
-                                    
-                                    for (int i = 1; i < 20; i++)
-                                    {
-                                        var yesnoAddon = raptureMgr->GetAddonByName(yesnoBytes, i);
-                                        if (yesnoAddon != null && yesnoAddon->IsVisible && ECommons.GenericHelpers.IsAddonReady(yesnoAddon))
-                                        {
-                                            Log?.Invoke("[AutoMarket] Found retainer leave confirmation dialog, clicking Yes...");
-                                            // Click Yes (button index 0)
-                                            ECommons.Automation.Callback.Fire(yesnoAddon, true, 0);
-                                            confirmationClicked = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        if (confirmationClicked)
-                        {
-                            break;
+                            Log?.Invoke("[AutoMarket] Found retainer leave confirmation dialog, clicking Yes...");
+                            ECommons.Automation.Callback.Fire(yesnoAddon, true, 0);
+                            confirmationClicked = true;
                         }
                     }
-                }
-                finally
-                {
-                    if (yesnoName != nint.Zero)
+
+                    if (confirmationClicked)
                     {
-                        System.Runtime.InteropServices.Marshal.FreeHGlobal(yesnoName);
+                        break;
                     }
                 }
                 
@@ -2367,7 +2284,7 @@ namespace AutomarketPro.Automation
                     if (node->Type == FFXIVClientStructs.FFXIV.Component.GUI.NodeType.Text)
                     {
                         var textNode = node->GetAsAtkTextNode();
-                        if (textNode != null && textNode->NodeText.StringPtr != null)
+                        if (textNode != null && (byte*)textNode->NodeText.StringPtr != null)
                         {
                             try
                             {

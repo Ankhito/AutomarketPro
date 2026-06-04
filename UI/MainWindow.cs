@@ -852,27 +852,14 @@ namespace AutomarketPro.UI
         /// </summary>
         private unsafe InventoryManager* GetInventoryManagerSafe()
         {
-            for (int attempt = 0; attempt < 5; attempt++)
+            try
             {
-                try
-                {
-                    var manager = InventoryManager.Instance();
-                    if (manager != null)
-                    {
-                        return manager;
-                    }
-                }
-                catch
-                {
-                    // Continue to next attempt
-                }
-                
-                if (attempt < 4)
-                {
-                    System.Threading.Thread.Sleep(10); // Small delay between attempts
-                }
+                return InventoryManager.Instance();
             }
-            return null;
+            catch
+            {
+                return null;
+            }
         }
 
         private void ScanInventoryForIgnoreTab()

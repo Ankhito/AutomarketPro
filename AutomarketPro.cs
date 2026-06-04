@@ -7,9 +7,6 @@ using Dalamud.Plugin.Services;
 using ECommons.UIHelpers.AddonMasterImplementations;
 using ECommons.Automation;
 using ECommons;
-using FFXIVClientStructs.FFXIV.Client.Game;
-using FFXIVClientStructs.FFXIV.Client.UI.Agent;
-using FFXIVClientStructs.FFXIV.Client.UI;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -329,105 +326,20 @@ namespace AutomarketPro
             }
         }
         
-        /// <summary>
-        /// Safely gets RaptureAtkUnitManager with retry logic (up to 5 attempts).
-        /// Returns null if all attempts fail.
-        /// </summary>
-        private unsafe FFXIVClientStructs.FFXIV.Client.UI.RaptureAtkUnitManager* GetRaptureAtkUnitManagerSafe()
-        {
-            for (int attempt = 0; attempt < 5; attempt++)
-            {
-                try
-                {
-                    var manager = FFXIVClientStructs.FFXIV.Client.UI.RaptureAtkUnitManager.Instance();
-                    if (manager != null)
-                    {
-                        return manager;
-                    }
-                }
-                catch
-                {
-                    // Continue to next attempt
-                }
-                
-                if (attempt < 4)
-                {
-                    System.Threading.Thread.Sleep(10); // Small delay between attempts
-                }
-            }
-            return null;
-        }
-
         private unsafe void Tick(IFramework framework)
         {
             try
             {
-                if (Automation != null && Automation.Running)
+                if (Automation != null && Automation.Running
+                    && ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("Talk", out var talkAddon)
+                    && talkAddon->IsVisible
+                    && ECommons.GenericHelpers.IsAddonReady(talkAddon))
                 {
-                    var raptureMgr = GetRaptureAtkUnitManagerSafe();
-                    if (raptureMgr != null)
-                    {
-                        nint talkName = nint.Zero;
-                        try
-                        {
-                            talkName = System.Runtime.InteropServices.Marshal.StringToHGlobalAnsi("Talk");
-                            if (talkName != nint.Zero)
-                            {
-                                var talkBytes = (byte*)talkName.ToPointer();
-                                
-                                for (int i = 1; i < 20; i++)
-                                {
-                                    try
-                                    {
-                                        var talkAddon = raptureMgr->GetAddonByName(talkBytes, i);
-                                        if (talkAddon != null && talkAddon->IsVisible && ECommons.GenericHelpers.IsAddonReady(talkAddon))
-                                        {
-                                            try
-                                            {
-                                                // Re-validate before accessing
-                                                if (ECommons.GenericHelpers.IsAddonReady(talkAddon))
-                                                {
-                                                    var talkMaster = new ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.Talk((nint)talkAddon);
-                                                    talkMaster.Click();
-                                                }
-                                            }
-                                            catch (System.AccessViolationException)
-                                            {
-                                                // Ignore access violations in Talk addon
-                                            }
-                                            catch (Exception)
-                                            {
-                                                // Ignore other errors
-                                            }
-                                            break; // Found and clicked, exit loop
-                                        }
-                                    }
-                                    catch (System.AccessViolationException)
-                                    {
-                                        continue; // Skip on access violation
-                                    }
-                                    catch { continue; }
-                                }
-                            }
-                        }
-                        finally
-                        {
-                            if (talkName != nint.Zero)
-                            {
-                                try
-                                {
-                                    System.Runtime.InteropServices.Marshal.FreeHGlobal(talkName);
-                                }
-                                catch { }
-                            }
-                        }
-                    }
+                    var talkMaster = new ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.Talk((nint)talkAddon);
+                    talkMaster.Click();
                 }
             }
-            catch (System.AccessViolationException)
-            {
-                // Ignore access violations in Tick
-            }
+            catch (System.AccessViolationException) { }
             catch { }
         }
         

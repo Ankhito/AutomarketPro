@@ -1,38 +1,18 @@
 {
   "version": 1,
   "dependencies": {
-    "net9.0-windows7.0": {
+    "net10.0-windows7.0": {
       "ECommons": {
         "type": "Direct",
-        "requested": "[3.0.1.23, )",
-        "resolved": "3.0.1.23",
-        "contentHash": "U3H/XCdSHlKWubXPeenZNDteZQ6nS7vitkFP9hMUkACb456PUwp7ryjhmujhytlFlXHKoCNnvbgQGyFThynf/g=="
+        "requested": "[3.2.1.6, )",
+        "resolved": "3.2.1.6",
+        "contentHash": "vr3lF7VyCEFaSB4nPbunH35WzIqfd40dMH4fmNkWO9dnOVDGuPD3eIc98APYUWduNU/LjAGnnQdrxHj5s+C1gg=="
       },
       "ImGui.NET": {
         "type": "Direct",
         "requested": "[1.89.9.1, )",
         "resolved": "1.89.9.1",
-        "contentHash": "vcpEi1Vh1GQVncVKDRw8ByRbzHtJNxDxQMET8AnjcGaAQ0niQnBSBpP+aAPRhuAjwLTAnj2G2N8jWWJRXvJPhA==",
-        "dependencies": {
-          "System.Buffers": "4.4.0",
-          "System.Numerics.Vectors": "4.4.0",
-          "System.Runtime.CompilerServices.Unsafe": "4.4.0"
-        }
-      },
-      "System.Buffers": {
-        "type": "Transitive",
-        "resolved": "4.4.0",
-        "contentHash": "AwarXzzoDwX6BgrhjoJsk6tUezZEozOT5Y9QKF94Gl4JK91I4PIIBkBco9068Y9/Dra8Dkbie99kXB8+1BaYKw=="
-      },
-      "System.Numerics.Vectors": {
-        "type": "Transitive",
-        "resolved": "4.4.0",
-        "contentHash": "UiLzLW+Lw6HLed1Hcg+8jSRttrbuXv7DANVj0DkL9g6EnnzbL75EB7EWsw5uRbhxd/4YdG8li5XizGWepmG3PQ=="
-      },
-      "System.Runtime.CompilerServices.Unsafe": {
-        "type": "Transitive",
-        "resolved": "4.4.0",
-        "contentHash": "9dLLuBxr5GNmOfl2jSMcsHuteEg32BEfUotmmUkmZjpR3RpVHE8YQwt0ow3p6prwA1ME8WqDVZqrr8z6H8G+Kw=="
+        "contentHash": "vcpEi1Vh1GQVncVKDRw8ByRbzHtJNxDxQMET8AnjcGaAQ0niQnBSBpP+aAPRhuAjwLTAnj2G2N8jWWJRXvJPhA=="
       }
     }
   }

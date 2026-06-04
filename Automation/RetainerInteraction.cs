@@ -122,35 +122,6 @@ namespace AutomarketPro.Automation
             return null;
         }
 
-        /// <summary>
-        /// Safely gets RaptureAtkUnitManager with retry logic (up to 5 attempts).
-        /// Returns null if all attempts fail.
-        /// </summary>
-        private unsafe FFXIVClientStructs.FFXIV.Client.UI.RaptureAtkUnitManager* GetRaptureAtkUnitManagerSafe()
-        {
-            for (int attempt = 0; attempt < 5; attempt++)
-            {
-                try
-                {
-                    var manager = FFXIVClientStructs.FFXIV.Client.UI.RaptureAtkUnitManager.Instance();
-                    if (manager != null)
-                    {
-                        return manager;
-                    }
-                }
-                catch
-                {
-                    // Continue to next attempt
-                }
-                
-                if (attempt < 4)
-                {
-                    System.Threading.Thread.Sleep(10); // Small delay between attempts
-                }
-            }
-            return null;
-        }
-        
         public unsafe int GetRetainerCount()
         {
             try
@@ -260,138 +231,50 @@ namespace AutomarketPro.Automation
                 await Task.Delay(66, token);
                 
                 bool eventSent = false;
-                nint retainerListNamePtr = nint.Zero;
-                nint addonPtr = nint.Zero;
-                int foundIndex = -1;
-                
-                try
+
+                Log?.Invoke($"[AutoMarket] Attempting to FireCallback for retainer {retainerIndex}");
+
+                eventSent = await RunOnFrameworkThreadAsync(() =>
                 {
                     unsafe
                     {
-                        var raptureMgr = GetRaptureAtkUnitManagerSafe();
-                        if (raptureMgr == null)
-                        {
-                            LogError?.Invoke("[AutoMarket] RaptureAtkUnitManager is null after retries", null);
-                            return false;
-                        }
-                        
-                        retainerListNamePtr = System.Runtime.InteropServices.Marshal.StringToHGlobalAnsi("RetainerList");
-                        if (retainerListNamePtr == nint.Zero)
-                        {
-                            LogError?.Invoke("[AutoMarket] Failed to allocate memory for RetainerList", null);
-                            return false;
-                        }
-                        
-                        var retainerListBytes = (byte*)retainerListNamePtr.ToPointer();
-                        if (retainerListBytes == null)
-                        {
-                            LogError?.Invoke("[AutoMarket] Failed to get pointer for RetainerList", null);
-                            return false;
-                        }
-                        
-                        // Find the addon first
-                        FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase* addon = null;
-                        
-                        for (int i = 1; i <= 10; i++)
-                        {
-                            try
-                            {
-                                var testAddon = raptureMgr->GetAddonByName(retainerListBytes, i);
-                                if (testAddon != null && ECommons.GenericHelpers.IsAddonReady(testAddon))
-                                {
-                                    addon = testAddon;
-                                    foundIndex = i;
-                                    addonPtr = (nint)addon;
-                                    Log?.Invoke($"[AutoMarket] Found RetainerList at index {i}");
-                                    break;
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                LogError?.Invoke($"[AutoMarket] Error checking index {i}: {ex.Message}", ex);
-                                continue;
-                            }
-                        }
-                    }
-                    
-                    // Now run FireCallback on framework thread (outside unsafe block)
-                    if (addonPtr != nint.Zero && foundIndex >= 0)
-                    {
-                        var retainerIdx = retainerIndex;
-                        var addonPtrLocal = addonPtr; // Copy for closure
-                        
-                        Log?.Invoke($"[AutoMarket] Attempting to FireCallback for retainer {retainerIdx} (addonPtr: {addonPtrLocal})");
-                        
-                        // Use our async helper to properly await the framework thread execution
-                        eventSent = await RunOnFrameworkThreadAsync(() =>
-                        {
-                            unsafe
-                            {
-                                try
-                                {
-                                    // Re-validate addon is still valid
-                                    var addonToUse = (FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase*)addonPtrLocal.ToPointer();
-                                    if (addonToUse == null)
-                                    {
-                                        LogError?.Invoke("[AutoMarket] Addon pointer is null when trying to FireCallback", null);
-                                        return false;
-                                    }
-                                    
-                                    if (!ECommons.GenericHelpers.IsAddonReady(addonToUse))
-                                    {
-                                        LogError?.Invoke("[AutoMarket] Addon is not ready when trying to FireCallback", null);
-                                        return false;
-                                    }
-                                    
-                                    var v = stackalloc FFXIVClientStructs.FFXIV.Component.GUI.AtkValue[4];
-                                    v[0].Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int;
-                                    v[0].Int = 2;
-                                    v[1].Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt;
-                                    v[1].UInt = (uint)retainerIdx;
-                                    v[2].Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int;
-                                    v[2].Int = 0;
-                                    v[3].Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int;
-                                    v[3].Int = 0;
-                                    
-                                    addonToUse->FireCallback(4, v);
-                                    Log?.Invoke($"[AutoMarket] Successfully used FireCallback for retainer {retainerIdx}");
-                                    return true;
-                                }
-                                catch (System.AccessViolationException ex)
-                                {
-                                    LogError?.Invoke("Access violation in FireCallback", ex);
-                                    return false;
-                                }
-                                catch (Exception ex)
-                                {
-                                    LogError?.Invoke($"FireCallback failed: {ex.Message}", ex);
-                                    return false;
-                                }
-                            }
-                        });
-                        
-                        Log?.Invoke($"[AutoMarket] FireCallback result: {eventSent}");
-                    }
-                    else
-                    {
-                        LogError?.Invoke($"[AutoMarket] Addon not found or invalid (addonPtr: {addonPtr}, foundIndex: {foundIndex})", null);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LogError?.Invoke($"[AutoMarket] RaptureAtkUnitManager access failed: {ex.Message}", ex);
-                }
-                finally
-                {
-                    if (retainerListNamePtr != nint.Zero)
-                    {
                         try
                         {
-                            System.Runtime.InteropServices.Marshal.FreeHGlobal(retainerListNamePtr);
+                            if (!ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("RetainerList", out var addon)
+                                || !ECommons.GenericHelpers.IsAddonReady(addon))
+                            {
+                                LogError?.Invoke("[AutoMarket] RetainerList addon not found or not ready", null);
+                                return false;
+                            }
+
+                            var v = stackalloc FFXIVClientStructs.FFXIV.Component.GUI.AtkValue[4];
+                            v[0].Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int;
+                            v[0].Int = 2;
+                            v[1].Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.UInt;
+                            v[1].UInt = (uint)retainerIndex;
+                            v[2].Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int;
+                            v[2].Int = 0;
+                            v[3].Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int;
+                            v[3].Int = 0;
+
+                            addon->FireCallback(4, v);
+                            Log?.Invoke($"[AutoMarket] Successfully used FireCallback for retainer {retainerIndex}");
+                            return true;
                         }
-                        catch { }
+                        catch (System.AccessViolationException ex)
+                        {
+                            LogError?.Invoke("Access violation in FireCallback", ex);
+                            return false;
+                        }
+                        catch (Exception ex)
+                        {
+                            LogError?.Invoke($"FireCallback failed: {ex.Message}", ex);
+                            return false;
+                        }
                     }
-                }
+                });
+
+                Log?.Invoke($"[AutoMarket] FireCallback result: {eventSent}");
                 
                 // Wait a bit for the callback to process (outside unsafe block)
                 if (!eventSent)
@@ -409,75 +292,46 @@ namespace AutomarketPro.Automation
                 Log?.Invoke("[AutoMarket] Waiting for SelectString to appear after clicking retainer...");
                 
                 bool selectStringFound = false;
-                nint selectStringNamePtr = nint.Zero;
-                
-                try
+
+                for (int attempts = 0; attempts < 100; attempts++)
                 {
-                    selectStringNamePtr = System.Runtime.InteropServices.Marshal.StringToHGlobalAnsi("SelectString");
-                    if (selectStringNamePtr == nint.Zero)
+                    await Task.Delay(110, token);
+
+                    if (token.IsCancellationRequested) break;
+
+                    try
                     {
-                        LogError?.Invoke("[AutoMarket] Failed to allocate memory for SelectString", null);
-                        return false;
-                    }
-                    
-                    for (int attempts = 0; attempts < 100; attempts++)
-                    {
-                        await Task.Delay(110, token);
-                        
-                        if (token.IsCancellationRequested) break;
-                        
-                        try
+                        bool selectStringFoundCheck = await RunOnFrameworkThreadAsync(() =>
                         {
-                            bool selectStringFoundCheck = await RunOnFrameworkThreadAsync(() =>
+                            unsafe
                             {
-                                unsafe
+                                try
                                 {
-                                    try
+                                    if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("SelectString", out var selectStringAddon)
+                                        && selectStringAddon != null
+                                        && ECommons.GenericHelpers.IsAddonReady(selectStringAddon))
                                     {
-                                        if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("SelectString", out var selectStringAddon))
-                                        {
-                                            if (selectStringAddon != null && ECommons.GenericHelpers.IsAddonReady(selectStringAddon))
-                                            {
-                                                Log?.Invoke("[AutoMarket] Found SelectString");
-                                                return true;
-                                            }
-                                        }
-                                        return false;
+                                        Log?.Invoke("[AutoMarket] Found SelectString");
+                                        return true;
                                     }
-                                    catch (System.AccessViolationException)
-                                    {
-                                        return false;
-                                    }
-                                    catch
-                                    {
-                                        return false;
-                                    }
+                                    return false;
                                 }
-                            });
-                            
-                            if (selectStringFoundCheck)
-                            {
-                                selectStringFound = true;
-                                break;
+                                catch (System.AccessViolationException) { return false; }
+                                catch { return false; }
                             }
-                        }
-                        catch (Exception ex)
+                        });
+
+                        if (selectStringFoundCheck)
                         {
-                            LogError?.Invoke($"[AutoMarket] Error checking SelectString (attempt {attempts}): {ex.Message}", ex);
-                            await Task.Delay(55, token);
-                            continue;
+                            selectStringFound = true;
+                            break;
                         }
                     }
-                }
-                finally
-                {
-                    if (selectStringNamePtr != nint.Zero)
+                    catch (Exception ex)
                     {
-                        try
-                        {
-                            System.Runtime.InteropServices.Marshal.FreeHGlobal(selectStringNamePtr);
-                        }
-                        catch { }
+                        LogError?.Invoke($"[AutoMarket] Error checking SelectString (attempt {attempts}): {ex.Message}", ex);
+                        await Task.Delay(55, token);
+                        continue;
                     }
                 }
                 
@@ -642,7 +496,7 @@ namespace AutomarketPro.Automation
                                 {
                                     new()
                                     {
-                                        Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int,
+                                        Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int,
                                         Int = foundEntryIndex
                                     }
                                 };

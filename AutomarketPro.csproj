@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <NoWarn>CA1416</NoWarn>
-    <TargetFramework>net9.0-windows</TargetFramework>
+    <NoWarn>CA1416;CS1705</NoWarn>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <AssemblyName>AutomarketPro</AssemblyName>
     <RootNamespace>AutomarketPro</RootNamespace>
     <Platforms>x64</Platforms>
@@ -17,7 +17,7 @@
   </PropertyGroup>
   
   <PropertyGroup>
-    <NoWarn>CA1416</NoWarn>
+    <NoWarn>CA1416;CS1705</NoWarn>
     <!-- Windows path (XIVLauncher) -->
     <DalamudLibPath Condition="'$(OS)' == 'Windows_NT'">$(appdata)\XIVLauncher\addon\Hooks\dev\</DalamudLibPath>
     <!-- macOS path (XIV on Mac) -->
@@ -25,7 +25,7 @@
   </PropertyGroup>
   
   <ItemGroup>
-    <PackageReference Include="ECommons" Version="3.0.1.23" />
+    <PackageReference Include="ECommons" Version="3.2.1.6" />
     <PackageReference Include="ImGui.NET" Version="1.89.9.1" />
   </ItemGroup>
   

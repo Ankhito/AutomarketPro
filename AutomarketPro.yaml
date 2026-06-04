@@ -5,7 +5,7 @@
   "AssemblyVersion": "1.0.0.0",
   "Description": "Automates inventory scanning, marketboard listing, and vendor selling using Universalis data and retainer control.",
   "ApplicableVersion": "any",
-  "DalamudApiLevel": 13,
+  "DalamudApiLevel": 15,
   "LoadPriority": 0,
   "LoadRequiredState": 0,
   "LoadSync": false,

@@ -201,27 +201,14 @@ namespace AutomarketPro.Services
         /// </summary>
         private unsafe InventoryManager* GetInventoryManagerSafe()
         {
-            for (int attempt = 0; attempt < 5; attempt++)
+            try
             {
-                try
-                {
-                    var manager = InventoryManager.Instance();
-                    if (manager != null)
-                    {
-                        return manager;
-                    }
-                }
-                catch
-                {
-                    // Continue to next attempt
-                }
-                
-                if (attempt < 4)
-                {
-                    System.Threading.Thread.Sleep(10); // Small delay between attempts
-                }
+                return InventoryManager.Instance();
             }
-            return null;
+            catch
+            {
+                return null;
+            }
         }
 
         private unsafe void ScanInventory()
@@ -318,30 +305,25 @@ namespace AutomarketPro.Services
         {
             try
             {
-                if (Svc.ClientState?.LocalPlayer != null)
+                unsafe
                 {
-                    var currentWorld = Svc.ClientState.LocalPlayer.CurrentWorld;
-                    var worldObj = currentWorld.Value;
-                    return worldObj.Name.ToString();
+                    var localPlayer = (FFXIVClientStructs.FFXIV.Client.Game.Character.Character*)
+                        FFXIVClientStructs.FFXIV.Client.Game.Object.GameObjectManager.Instance()->Objects.IndexSorted[0].Value;
+                    if (localPlayer != null && localPlayer->CurrentWorld != 0 && Plugin.DataManager != null)
+                    {
+                        var worldSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.World>();
+                        if (worldSheet != null)
+                        {
+                            var world = worldSheet.GetRow(localPlayer->CurrentWorld);
+                            if (world.RowId != 0)
+                                return world.Name.ToString();
+                        }
+                    }
                 }
             }
             catch (Exception ex)
             {
                 LogError($"[AutoMarket] [SCAN] Error getting world: {ex.Message}", ex);
-            }
-
-            try
-            {
-                if (Plugin.ClientState?.LocalPlayer != null)
-                {
-                    var currentWorld = Plugin.ClientState.LocalPlayer.CurrentWorld;
-                    var worldObj = currentWorld.Value;
-                    return worldObj.Name.ToString();
-                }
-            }
-            catch (Exception ex)
-            {
-                LogError($"[AutoMarket] [SCAN] Error getting world (fallback): {ex.Message}", ex);
             }
 
             return "Excalibur";
