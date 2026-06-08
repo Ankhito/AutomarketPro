@@ -1,160 +1,123 @@
-# Contributing to AutomarketPro
+# Contributing to AutoMarket Pro
 
-Thank you for your interest in contributing to AutomarketPro! This guide will help you get started with development.
+Thank you for your interest in contributing! This guide covers development setup, the build workflow, and how to cut a release.
 
-## Development Setup
+## Prerequisites
 
-### Prerequisites
+- **.NET 10.0 SDK**
+- A working **Dalamud** development environment (XIVLauncher or XIV on Mac)
+- **Git**
 
-- .NET 9.0 SDK
-- Dalamud development environment set up
-- Git
+The project targets `net10.0-windows` and references Dalamud API level 15. The Dalamud library path is resolved automatically from the csproj based on your OS:
 
-### Getting Started
+- **Windows**: `%APPDATA%\XIVLauncher\addon\Hooks\dev\`
+- **macOS**: `~/Library/Application Support/XIV on Mac/dalamud/Hooks/dev/`
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/bimilbimil/AutomarketPro.git
-   cd AutomarketPro
-   ```
-
-2. Build the project:
-   ```bash
-   dotnet build
-   ```
-
-   Or use the Makefile:
-   ```bash
-   make build
-   ```
-
-3. For development installation, you can use:
-   ```bash
-   make deploy
-   ```
-   This will copy the built files to your Dalamud plugins directory.
-
-## Building from Source
-
-### Build Steps
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/bimilbimil/AutomarketPro.git
-   cd AutomarketPro
-   ```
-
-2. Build the project:
-   ```bash
-   dotnet build
-   ```
-
-   Or use the Makefile:
-   ```bash
-   make build
-   ```
-
-3. Copy the built files (`AutomarketPro.dll`, `AutomarketPro.json`) to your Dalamud plugins directory:
-   - **Windows (XIVLauncher)**: `%APPDATA%\XIVLauncher\addon\Hooks\dev\plugins`
-   - **macOS (XIV on Mac)**: `~/Library/Application Support/XIV on Mac/dalamud/Hooks/dev/plugins`
-
-## Creating Release Packages
-
-### For Release
+## Getting Started
 
 ```bash
-make package
+git clone https://github.com/bimilbimil/AutomarketPro.git
+cd AutomarketPro
+make build
 ```
 
-This creates `dist/AutomarketPro.zip` containing:
-- `AutomarketPro.dll` - Main plugin assembly
-- `AutomarketPro.json` - Plugin manifest
-- `AutomarketPro.yaml` - Alternative manifest (optional)
-- `ECommons.dll` - Dependency (required)
-- `AutomarketPro.deps.json` - Dependency manifest (required)
+`make build` compiles a Debug build and copies the plugin files to your Dalamud dev plugins directory so you can test immediately.
 
-**Note:** The `make package` command automatically:
-- Updates `LastUpdate` timestamp in `repo.json`
-- Increments `AssemblyVersion` (build number)
-- Optionally updates `DownloadLink` URLs if you specify `RELEASE_TAG`:
+## Project Structure
 
-```bash
-make package RELEASE_TAG=v1.0.1
+```
+AutomarketPro/
+├── AutomarketPro.cs          # Plugin entry point, service wiring
+├── Core/
+│   └── Configuration.cs      # Persisted settings
+├── Models/
+│   ├── ScannedItem.cs        # Item data model
+│   └── RunSummary.cs         # Automation run results
+├── Services/
+│   ├── MarketScanner.cs      # Inventory scan + Universalis price fetching
+│   └── RetainerAutomation.cs # Orchestrates full cycle and clear cycle
+├── Automation/
+│   ├── ItemListing.cs        # All retainer UI interactions (list, vendor, clear)
+│   └── RetainerInteraction.cs# Retainer bell / SelectString / window navigation
+└── UI/
+    └── MainWindow.cs         # ImGui window and all tabs
 ```
 
-### For Dev Installation
+## Makefile Targets
 
-```bash
-make package-dev
-```
+| Target | Description |
+|--------|-------------|
+| `make build` | Compile (Debug) and deploy to local Dalamud plugins dir |
+| `make build-only` | Compile without deploying |
+| `make deploy` | Copy already-built files to plugins dir |
+| `make package RELEASE_TAG=vX.Y.Z` | Create `dist/AutomarketPro.zip` for release |
+| `make package-dev` | Create `dist/AutomarketPro-dev.zip` |
+| `make clean` | Remove build artifacts |
+| `make rebuild` | Clean then build |
+| `make info` | Show build and install paths |
 
-This creates `dist/AutomarketPro-dev.zip` with the same contents.
+## Release Workflow
 
-**Note:** The zip files are created in the `dist/` directory and can be uploaded to GitHub Releases or used for manual installation.
+Follow these steps in order to avoid version mismatches:
 
-## Creating GitHub Releases
-
-When creating a new release on GitHub:
-
-1. Build and package:
-   ```bash
-   make package
+1. **Bump `AutomarketPro.json`** — update `AssemblyVersion` manually (the Makefile only auto-bumps `repo.json`):
+   ```json
+   "AssemblyVersion": "1.0.0.X"
    ```
 
-2. Create a release tag (e.g., `v1.0.0.0` or `v1.0.1`)
-
-3. Upload the `AutomarketPro.zip` file from `dist/` to the release
-
-4. If using a new release tag, update `repo.json`:
+2. **Build a Release binary:**
    ```bash
-   make package RELEASE_TAG=v1.0.1
+   dotnet build -c Debug
    ```
-   This will automatically update:
-   - `AssemblyVersion` (incremented)
-   - `LastUpdate` (current timestamp)
-   - `DownloadLinkInstall`, `DownloadLinkUpdate`, and `DownloadLinkTesting` URLs
 
-5. Commit and push the updated `repo.json` to the repository
+3. **Package with the release tag** — this also auto-increments `repo.json` AssemblyVersion, updates the timestamp, and sets the download URLs:
+   ```bash
+   make package RELEASE_TAG=v1.X.Y
+   ```
 
-**Note:** You can reuse the same release tag and just replace the zip file. Dalamud will detect updates based on the `AssemblyVersion` in `repo.json`.
+4. **Commit and push everything** (source changes + both json files + `dist/` is gitignored):
+   ```bash
+   git add .
+   git commit -m "release vX.Y.Z"
+   git push
+   ```
 
-## Development Workflow
+5. **Create a GitHub Release** tagged `v1.X.Y` and upload `dist/AutomarketPro.zip`.
 
-### Available Makefile Targets
+Dalamud detects updates via the `AssemblyVersion` in `repo.json`, which is hosted at:
+```
+https://raw.githubusercontent.com/bimilbimil/AutomarketPro/main/repo.json
+```
 
-- `make build` - Build and deploy the plugin (default)
-- `make build-only` - Build without deploying
-- `make deploy` - Deploy files (after building)
-- `make package` - Create release zip package
-- `make package-dev` - Create dev zip package
-- `make clean` - Clean build artifacts
-- `make rebuild` - Clean and rebuild
-- `make info` - Show plugin file information
-- `make help` - Show help message
+## Testing
 
-### Testing
+Enable **Debug Logs** in the plugin Settings tab. All automation output appears in the **Debug** tab in real time. Useful areas to watch:
 
-Enable Debug Logs in the plugin Settings tab to see detailed logging information. This will help identify any issues with:
-- Item scanning
-- Market price fetching
-- Retainer interactions
-- UI automation
+- **Scan**: item discovery, Universalis API responses, profit decisions
+- **Listing**: retainer opening, context menu interactions, slot counting
+- **Clear**: withdrawal flow, inventory/retainer bag space checks
 
-## Code Style
+## Dependencies
 
-- Follow C# coding conventions
-- Use meaningful variable and method names
-- Add comments for complex logic
-- Keep methods focused and single-purpose
+| Package | Version | Source |
+|---------|---------|--------|
+| ECommons | 3.2.1.6 | NuGet |
+| ImGui.NET | 1.89.9.1 | NuGet |
+| Dalamud + FFXIVClientStructs | (from Dalamud lib path) | Local ref |
+
+## Code Guidelines
+
+- Follow standard C# conventions
+- All game UI interactions must run on the **framework thread** via `RunOnFrameworkThreadAsync` — never call `Thread.Sleep` inside a framework thread lambda
+- Read stale-prone game memory (e.g. `RetainerManager.MarketItemCount`) once at session start and track changes locally
+- Keep comments minimal — only when the *why* is non-obvious
 
 ## Submitting Changes
 
-1. Create a feature branch from `main`
-2. Make your changes
-3. Test thoroughly
-4. Submit a pull request with a clear description of changes
+1. Branch from `main`
+2. Make and test your changes
+3. Open a pull request with a clear description
 
 ## Questions?
 
-If you have questions about contributing, please open an issue on GitHub.
-
+Open an issue on [GitHub](https://github.com/bimilbimil/AutomarketPro/issues).
