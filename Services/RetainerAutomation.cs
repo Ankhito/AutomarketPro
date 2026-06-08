@@ -201,15 +201,18 @@ namespace AutomarketPro.Services
             
             // Step 2: Wait for RetainerSell window and list items
             var maxListings = 20;
-            
-            // Get current listing count from retainer (may already have items listed)
+
+            // Read the retainer's current listing count ONCE — this initial read from RetainerManager
+            // is accurate (loaded when the retainer bell was accessed). Mid-session reads are stale
+            // because MarketItemCount doesn't update as items are listed. We seed SessionListingCount
+            // here and ItemListing increments it per successful batch.
             int currentListings = RetainerInteraction.GetRetainerMarketItemCount(retainerIndex);
+            ItemListing.SessionListingCount = currentListings;
             Log($"[AutoMarket] Retainer {retainerIndex} currently has {currentListings} items listed on market board");
-            
-            // Calculate how many items we can actually list (better approach - only list what we can)
+
             int availableSlots = maxListings - currentListings;
             int itemsToAttempt = Math.Min(profitable.Count, availableSlots);
-            
+
             if (availableSlots <= 0)
             {
                 Log($"[AutoMarket] Retainer {retainerIndex} is already at max listings ({currentListings}/{maxListings}). Moving to next retainer.");
@@ -235,11 +238,10 @@ namespace AutomarketPro.Services
             {
                 var item = profitable.Peek(); // Peek to check before dequeueing
                 
-                // Double-check current listings before attempting (in case something changed)
-                currentListings = RetainerInteraction.GetRetainerMarketItemCount(retainerIndex);
-                if (currentListings >= maxListings)
+                // Use SessionListingCount (locally tracked) — game memory is stale mid-session
+                if (ItemListing.SessionListingCount >= maxListings)
                 {
-                    Log($"[AutoMarket] Retainer {retainerIndex} reached max listings ({currentListings}/{maxListings}) during listing. Moving to next retainer.");
+                    Log($"[AutoMarket] Retainer {retainerIndex} reached max listings ({ItemListing.SessionListingCount}/{maxListings}) during listing. Moving to next retainer.");
                     break;
                 }
                 
@@ -286,12 +288,9 @@ namespace AutomarketPro.Services
                     break; // Exit loop to move to next retainer
                 }
                 
-                // Refresh current listings count after successful listing
+                // Delay between listings — use SessionListingCount (locally tracked, not stale game memory)
                 await Task.Delay(330, token);
-                currentListings = RetainerInteraction.GetRetainerMarketItemCount(retainerIndex);
-                
-                // Delay between listings - make it longer if we already have items listed
-                if (currentListings > 1)
+                if (ItemListing.SessionListingCount > 1)
                 {
                     await Task.Delay((int)(Plugin.Configuration.ActionDelay * 2 * 1.1), token);
                 }
@@ -342,11 +341,11 @@ namespace AutomarketPro.Services
             }
             
             // Close retainer windows if we have more items for next retainer OR if retainer is full
-            bool needsNextRetainer = (profitable.Count > 0 || unprofitable.Count > 0) || currentListings >= maxListings;
-            
+            bool needsNextRetainer = (profitable.Count > 0 || unprofitable.Count > 0) || ItemListing.SessionListingCount >= maxListings;
+
             if (needsNextRetainer)
             {
-                Log($"[AutoMarket] Closing retainer {retainerIndex} - {profitable.Count} profitable, {unprofitable.Count} unprofitable items remaining, {currentListings}/{maxListings} listings");
+                Log($"[AutoMarket] Closing retainer {retainerIndex} - {profitable.Count} profitable, {unprofitable.Count} unprofitable items remaining, {ItemListing.SessionListingCount}/{maxListings} listings");
                 
                 // Close RetainerSell window first (pass weVendored flag)
                 await ItemListing.CloseRetainerWindow(weVendored, token);
@@ -358,6 +357,103 @@ namespace AutomarketPro.Services
             LastRunSummary.TotalItems = LastRunSummary.ItemsListed + LastRunSummary.ItemsVendored;
         }
         
+        public async Task StartClearCycle()
+        {
+            if (IsRunning) return;
+
+            IsRunning = true;
+            IsPaused = false;
+            AutomationToken = new CancellationTokenSource();
+
+            var config = Plugin.Configuration;
+            bool toRetainerBag = config.ClearReturnToRetainerInventory;
+            string destination = toRetainerBag ? "retainer bag" : "player inventory";
+
+            Plugin?.PrintChat($"[AutoMarket] Starting retainer clear (destination: {destination})...");
+
+            try
+            {
+                StatusUpdate?.Invoke("Starting clear...");
+                Log("[AutoMarket] Starting clear cycle");
+
+                int retainerCount = RetainerInteraction.GetRetainerCount();
+                if (retainerCount == 0)
+                {
+                    LogError("[AutoMarket] No retainers found");
+                    return;
+                }
+
+                int totalWithdrawn = 0;
+                bool stoppedEarly = false;
+
+                for (int retainerIndex = 0; retainerIndex < retainerCount && !AutomationToken.Token.IsCancellationRequested; retainerIndex++)
+                {
+                    // Opt-out: skip retainers the user has explicitly excluded
+                    if (config.ClearExcludedRetainers.Contains(retainerIndex)) continue;
+
+                    StatusUpdate?.Invoke($"Clearing Retainer {retainerIndex + 1}...");
+                    Log($"[AutoMarket] Opening Retainer {retainerIndex + 1} for clear");
+
+                    var success = await RetainerInteraction.OpenAndSelectRetainer(retainerIndex, AutomationToken.Token);
+                    if (!success)
+                    {
+                        LogError($"[AutoMarket] Failed to open retainer {retainerIndex + 1} for clearing");
+                        continue;
+                    }
+
+                    await Task.Delay(660, AutomationToken.Token);
+
+                    var (withdrawn, spaceFull) = await ItemListing.ClearAllListedItems(retainerIndex, toRetainerBag, AutomationToken.Token);
+                    totalWithdrawn += withdrawn;
+
+                    if (spaceFull)
+                    {
+                        Plugin?.PrintChat($"[AutoMarket] {(toRetainerBag ? "Retainer bag" : "Inventory")} is full — stopped clearing early.");
+                        stoppedEarly = true;
+                    }
+
+                    // Close windows if there are more retainers to process, or we stopped early
+                    bool moreRetainers = !stoppedEarly && retainerIndex < retainerCount - 1
+                        && Enumerable.Range(retainerIndex + 1, retainerCount - retainerIndex - 1)
+                                     .Any(r => !config.ClearExcludedRetainers.Contains(r));
+                    if (moreRetainers || stoppedEarly)
+                    {
+                        await ItemListing.CloseRetainerWindow(false, AutomationToken.Token);
+                        await ItemListing.CloseRetainerList(false, AutomationToken.Token);
+                    }
+
+                    if (stoppedEarly) break;
+
+                    await Task.Delay((int)(Plugin.Configuration.RetainerDelay * 1.1), AutomationToken.Token);
+                }
+
+                if (!stoppedEarly)
+                {
+                    Plugin?.PrintChat($"[AutoMarket] Clear complete! Withdrew {totalWithdrawn} item(s) to {destination}.");
+                }
+
+                StatusUpdate?.Invoke("Clear complete!");
+                Log($"[AutoMarket] Clear cycle done — withdrew {totalWithdrawn} item(s) total");
+            }
+            catch (OperationCanceledException)
+            {
+                StatusUpdate?.Invoke("Clear stopped");
+            }
+            catch (Exception ex)
+            {
+                LogError("[AutoMarket] Clear error", ex);
+                StatusUpdate?.Invoke($"Error: {ex.Message}");
+                Plugin?.PrintChat($"[AutoMarket] Clear failed: {ex.Message}");
+            }
+            finally
+            {
+                IsRunning = false;
+                IsPaused = false;
+                AutomationToken?.Dispose();
+                AutomationToken = null;
+            }
+        }
+
         public void StopAutomation()
         {
             AutomationToken?.Cancel();

@@ -335,11 +335,25 @@ namespace AutomarketPro.UI
                     ImGui.EndTabItem();
                 }
                 
+                if (ImGui.BeginTabItem("Clear"))
+                {
+                    ImGui.Spacing();
+                    try
+                    {
+                        DrawClearTab();
+                    }
+                    catch (Exception ex)
+                    {
+                        ImGui.TextUnformatted($"Error in ClearTab: {ex?.Message ?? "Unknown"}");
+                    }
+                    ImGui.EndTabItem();
+                }
+
                 if (ImGui.BeginTabItem("Settings"))
                 {
                     if (ShowSettingsTab)
                         ShowSettingsTab = false;
-                    
+
                     ImGui.Spacing();
                     try
                     {
@@ -393,7 +407,7 @@ namespace AutomarketPro.UI
                     {
                         // Log button click immediately
                         Log("[AutoMarket] [SCAN] Button clicked - starting scan...");
-                        
+
                         // Run scan in background - catch and log any errors
                         _ = Task.Run(async () =>
                         {
@@ -408,6 +422,12 @@ namespace AutomarketPro.UI
                                 LogError("[AutoMarket] Scan button error", ex);
                             }
                         });
+                    }
+
+                    ImGui.SameLine();
+                    if (ImGui.Button("[C] Clear", new Vector2(75, 25)))
+                    {
+                        Task.Run(async () => await Automation.StartClearCycle());
                     }
                 }
                 else
@@ -732,6 +752,79 @@ namespace AutomarketPro.UI
             }
         }
         
+        private void DrawClearTab()
+        {
+            try
+            {
+                ImGui.TextWrapped("Pulls listed market items back from each retainer. By default, items are returned to your inventory. Retainers that don't exist are skipped. If the destination is full, clearing stops early with a chat message.");
+                ImGui.Spacing();
+                ImGui.Separator();
+                ImGui.Spacing();
+
+                var config = Plugin.Configuration;
+
+                // Return destination option
+                bool returnToRetainer = config.ClearReturnToRetainerInventory;
+                if (ImGui.Checkbox("Return to Retainer Inventory##clearMode", ref returnToRetainer))
+                {
+                    config.ClearReturnToRetainerInventory = returnToRetainer;
+                    config.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1),
+                    returnToRetainer
+                        ? "(items go to retainer's bag)"
+                        : "(default: items go to your inventory)");
+
+                ImGui.Spacing();
+                ImGui.Separator();
+                ImGui.Spacing();
+
+                ImGui.TextUnformatted("Exclude retainers from clearing (checked = skip):");
+                ImGui.Spacing();
+
+                if (ImGui.BeginTable("ClearRetainerTable", 2, ImGuiTableFlags.None))
+                {
+                    ImGui.TableSetupColumn("Col1", ImGuiTableColumnFlags.WidthStretch);
+                    ImGui.TableSetupColumn("Col2", ImGuiTableColumnFlags.WidthStretch);
+
+                    for (int row = 0; row < 5; row++)
+                    {
+                        ImGui.TableNextRow();
+
+                        // Left column: retainer (row+1), 0-based index = row
+                        ImGui.TableSetColumnIndex(0);
+                        int leftIndex = row;
+                        bool leftExcluded = config.ClearExcludedRetainers.Contains(leftIndex);
+                        if (ImGui.Checkbox($"Retainer {leftIndex + 1}##clearExclude{leftIndex}", ref leftExcluded))
+                        {
+                            if (leftExcluded) config.ClearExcludedRetainers.Add(leftIndex);
+                            else config.ClearExcludedRetainers.Remove(leftIndex);
+                            config.Save();
+                        }
+
+                        // Right column: retainer (row+6), 0-based index = row+5
+                        ImGui.TableSetColumnIndex(1);
+                        int rightIndex = row + 5;
+                        bool rightExcluded = config.ClearExcludedRetainers.Contains(rightIndex);
+                        if (ImGui.Checkbox($"Retainer {rightIndex + 1}##clearExclude{rightIndex}", ref rightExcluded))
+                        {
+                            if (rightExcluded) config.ClearExcludedRetainers.Add(rightIndex);
+                            else config.ClearExcludedRetainers.Remove(rightIndex);
+                            config.Save();
+                        }
+                    }
+
+                    ImGui.EndTable();
+                }
+            }
+            catch (Exception ex)
+            {
+                SafeTextColored(new Vector4(1, 0, 0, 1), $"Error in DrawClearTab: {ex?.Message ?? "Unknown"}");
+                LogError("[AutoMarket] DrawClearTab error", ex);
+            }
+        }
+
         private void DrawSettingsTab()
         {
             try

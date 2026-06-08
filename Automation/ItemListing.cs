@@ -31,6 +31,11 @@ namespace AutomarketPro.Automation
         
         // Callback to check retainer listing count (set by RetainerAutomation)
         public Func<int, int>? GetRetainerListingCount { get; set; }
+
+        // Tracks listings made this retainer session. Set to the retainer's initial listing count
+        // by RetainerAutomation before listing begins, then incremented per successful batch here.
+        // Game memory (MarketItemCount) does not update mid-session, so we must track locally.
+        public int SessionListingCount { get; set; } = 0;
         
         public ItemListing(AutomarketPro.AutomarketProPlugin plugin)
         {
@@ -248,21 +253,15 @@ namespace AutomarketPro.Automation
                 
                 while (remainingQuantity > 0 && !token.IsCancellationRequested)
                 {
-                    // Check retainer listing limit before each batch (if retainerIndex is provided)
-                    if (retainerIndex.HasValue && GetRetainerListingCount != null)
+                    // Check limit using SessionListingCount — game memory (MarketItemCount) is stale
+                    // mid-session and cannot be re-read reliably after listings are made.
+                    if (retainerIndex.HasValue && SessionListingCount >= maxListings)
                     {
-                        int currentListings = GetRetainerListingCount(retainerIndex.Value);
-                        if (currentListings >= maxListings)
-                        {
-                            Log?.Invoke($"[AutoMarket] Retainer {retainerIndex.Value} reached max listings ({currentListings}/{maxListings}). Cannot list more batches of {item.ItemName}. Remaining quantity: {remainingQuantity}");
-                            // Update item quantity to reflect what's remaining
-                            item.Quantity = remainingQuantity;
-                            // Update inventory location in case we moved to a different stack
-                            item.InventoryType = currentInventoryType;
-                            item.InventorySlot = currentInventorySlot;
-                            // Return true (partially successful) so item stays in queue for next retainer
-                            return anyBatchSucceeded;
-                        }
+                        Log?.Invoke($"[AutoMarket] Retainer {retainerIndex.Value} reached max listings ({SessionListingCount}/{maxListings}). Cannot list more batches of {item.ItemName}. Remaining quantity: {remainingQuantity}");
+                        item.Quantity = remainingQuantity;
+                        item.InventoryType = currentInventoryType;
+                        item.InventorySlot = currentInventorySlot;
+                        return anyBatchSucceeded;
                     }
                     
                     // Check actual quantity in current slot before calculating batch quantity
@@ -556,10 +555,14 @@ namespace AutomarketPro.Automation
                     {
                         break;
                     }
-                    
+
+                    // Each successful batch uses exactly one listing slot — increment the shared counter
+                    // so subsequent batches (and other items) see the updated count.
+                    SessionListingCount++;
+
                     // Add delay after UI operations
                     await Task.Delay(100, token);
-                    
+
                     // If there's more to list, check if current slot is depleted and find next stack if needed
                     if (remainingQuantity > 0)
                     {
@@ -2595,55 +2598,77 @@ namespace AutomarketPro.Automation
         }
         
         /// <summary>
-        /// Clicks "Return Items to Inventory" from the context menu of a listed item.
+        /// Waits for the context menu to appear and returns its wrapper, or null on failure.
         /// </summary>
-        private async Task<bool> ClickReturnToInventory(CancellationToken token)
+        private async Task<(ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.ContextMenu contextMenu, nint ptr)> WaitForContextMenu(CancellationToken token)
+        {
+            nint contextMenuPtr = nint.Zero;
+            ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.ContextMenu contextMenu = null;
+
+            for (int attempts = 0; attempts < 30; attempts++)
+            {
+                await Task.Delay(66, token);
+                try
+                {
+                    unsafe
+                    {
+                        if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var addon)
+                            && ECommons.GenericHelpers.IsAddonReady(&addon->AtkUnitBase))
+                        {
+                            contextMenuPtr = (nint)addon;
+                        }
+                    }
+                    if (contextMenuPtr != nint.Zero)
+                    {
+                        contextMenu = new ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.ContextMenu(contextMenuPtr);
+                        break;
+                    }
+                }
+                catch { }
+            }
+
+            return (contextMenu, contextMenuPtr);
+        }
+
+        /// <summary>
+        /// Fires the context menu callback for the entry at the given index.
+        /// </summary>
+        private bool FireContextMenuEntry(int entryIndex)
+        {
+            unsafe
+            {
+                if (!ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var addon))
+                    return false;
+                var atk = &addon->AtkUnitBase;
+                if (atk == null || !ECommons.GenericHelpers.IsAddonReady(atk))
+                    return false;
+                var values = stackalloc AtkValue[3]
+                {
+                    new() { Type = AtkValueType.Int, Int = 0 },
+                    new() { Type = AtkValueType.Int, Int = entryIndex },
+                    new() { Type = AtkValueType.Int, Int = 0 }
+                };
+                atk->FireCallback(3, values, true);
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Clicks "Return Items to Inventory" (returns listed item to the player's inventory).
+        /// Uses strict text matching — no broad fallback — to avoid hitting the wrong menu entry.
+        /// </summary>
+        private async Task<bool> ClickReturnToPlayerInventory(CancellationToken token)
         {
             try
             {
-                ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.ContextMenu contextMenu = null;
-                nint contextMenuPtr = nint.Zero;
-                
-                // Wait for context menu to appear
-                for (int attempts = 0; attempts < 30; attempts++)
+                var (contextMenu, ptr) = await WaitForContextMenu(token);
+                if (contextMenu == null || ptr == nint.Zero)
                 {
-                    await Task.Delay(66, token);
-                    try
-                    {
-                        unsafe
-                        {
-                            if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var contextMenuAddon))
-                            {
-                                if (ECommons.GenericHelpers.IsAddonReady(&contextMenuAddon->AtkUnitBase))
-                                {
-                                    contextMenuPtr = (nint)contextMenuAddon;
-                                }
-                            }
-                        }
-                        
-                        if (contextMenuPtr != nint.Zero)
-                        {
-                            try
-                            {
-                                contextMenu = new ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.ContextMenu(contextMenuPtr);
-                                break;
-                            }
-                            catch (Exception ex)
-                            {
-                                LogError?.Invoke($"[AutoMarket] Error creating ContextMenu wrapper: {ex.Message}", null);
-                            }
-                        }
-                    }
-                    catch { }
-                }
-                
-                if (contextMenu == null || contextMenuPtr == nint.Zero)
-                {
-                    LogError?.Invoke("[AutoMarket] Context menu not found for Return to Inventory", null);
+                    LogError?.Invoke("[AutoMarket] Context menu not found for return-to-player", null);
                     return false;
                 }
-                
-                // Get "Return Items to Inventory" text from Addon sheet
+
+                // Build the exact text from Addon sheet, fall back only to a literal exact string
                 string returnText = "Return Items to Inventory";
                 try
                 {
@@ -2652,28 +2677,25 @@ namespace AutomarketPro.Automation
                         var addonSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Addon>();
                         if (addonSheet != null)
                         {
-                            var row = addonSheet.GetRow(5482); // Common ID for return to inventory
+                            var row = addonSheet.GetRow(5482);
                             if (row.RowId != 0)
                             {
                                 var text = row.Text.ToString();
                                 if (!string.IsNullOrEmpty(text))
-                                {
                                     returnText = text;
-                                }
                             }
                         }
                     }
                 }
                 catch { }
-                
-                // Find "Return Items to Inventory" entry
+
                 var entries = contextMenu.Entries;
                 if (entries == null)
                 {
-                    LogError?.Invoke("[AutoMarket] Context menu has no entries", null);
+                    LogError?.Invoke("[AutoMarket] Context menu has no entries (return-to-player)", null);
                     return false;
                 }
-                
+
                 int foundIndex = -1;
                 for (int i = 0; i < entries.Length; i++)
                 {
@@ -2681,9 +2703,91 @@ namespace AutomarketPro.Automation
                     {
                         var entry = entries[i];
                         if (!entry.Enabled) continue;
-                        
                         var entryText = entry.Text;
-                        if (entryText != null && 
+                        if (entryText != null &&
+                            (entryText.Equals(returnText, StringComparison.OrdinalIgnoreCase) ||
+                             entryText.Equals("Return Items to Inventory", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            foundIndex = entry.Index;
+                            break;
+                        }
+                    }
+                    catch { continue; }
+                }
+
+                if (foundIndex < 0)
+                {
+                    LogError?.Invoke("[AutoMarket] Could not find exact 'Return Items to Inventory' in context menu", null);
+                    return false;
+                }
+
+                if (!FireContextMenuEntry(foundIndex))
+                {
+                    LogError?.Invoke("[AutoMarket] Failed to fire context menu for return-to-player", null);
+                    return false;
+                }
+
+                await Task.Delay(550, token);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogError?.Invoke($"[AutoMarket] Error in ClickReturnToPlayerInventory: {ex.Message}", ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Clicks the first context menu entry that contains "Return" — moves the listed item to
+        /// the retainer's bag (the confirmed-working behavior the user observed).
+        /// </summary>
+        private async Task<bool> ClickMoveToRetainerBag(CancellationToken token)
+        {
+            try
+            {
+                var (contextMenu, ptr) = await WaitForContextMenu(token);
+                if (contextMenu == null || ptr == nint.Zero)
+                {
+                    LogError?.Invoke("[AutoMarket] Context menu not found for move-to-retainer-bag", null);
+                    return false;
+                }
+
+                string returnText = "Return Items to Inventory";
+                try
+                {
+                    if (Plugin?.DataManager != null)
+                    {
+                        var addonSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Addon>();
+                        if (addonSheet != null)
+                        {
+                            var row = addonSheet.GetRow(5482);
+                            if (row.RowId != 0)
+                            {
+                                var text = row.Text.ToString();
+                                if (!string.IsNullOrEmpty(text))
+                                    returnText = text;
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                var entries = contextMenu.Entries;
+                if (entries == null)
+                {
+                    LogError?.Invoke("[AutoMarket] Context menu has no entries (move-to-retainer-bag)", null);
+                    return false;
+                }
+
+                int foundIndex = -1;
+                for (int i = 0; i < entries.Length; i++)
+                {
+                    try
+                    {
+                        var entry = entries[i];
+                        if (!entry.Enabled) continue;
+                        var entryText = entry.Text;
+                        if (entryText != null &&
                             (entryText.Equals(returnText, StringComparison.OrdinalIgnoreCase) ||
                              entryText.Contains("Return Items to Inventory", StringComparison.OrdinalIgnoreCase) ||
                              entryText.Contains("Return to Inventory", StringComparison.OrdinalIgnoreCase) ||
@@ -2695,44 +2799,25 @@ namespace AutomarketPro.Automation
                     }
                     catch { continue; }
                 }
-                
+
                 if (foundIndex < 0)
                 {
-                    LogError?.Invoke("[AutoMarket] Could not find 'Return Items to Inventory' option in context menu", null);
+                    LogError?.Invoke("[AutoMarket] Could not find a 'Return' option in context menu (move-to-retainer-bag)", null);
                     return false;
                 }
-                
-                // Click the entry
-                unsafe
+
+                if (!FireContextMenuEntry(foundIndex))
                 {
-                    if (!ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var contextMenuAddon))
-                    {
-                        LogError?.Invoke("[AutoMarket] ContextMenu addon not found when trying to click", null);
-                        return false;
-                    }
-                    
-                    var atkUnitBase = &contextMenuAddon->AtkUnitBase;
-                    if (atkUnitBase == null || !ECommons.GenericHelpers.IsAddonReady(atkUnitBase))
-                    {
-                        LogError?.Invoke("[AutoMarket] ContextMenu addon is not ready", null);
-                        return false;
-                    }
-                    
-                    var values = stackalloc AtkValue[3]
-                    {
-                        new() { Type = AtkValueType.Int, Int = 0 },
-                        new() { Type = AtkValueType.Int, Int = foundIndex },
-                        new() { Type = AtkValueType.Int, Int = 0 }
-                    };
-                    atkUnitBase->FireCallback(3, values, true);
+                    LogError?.Invoke("[AutoMarket] Failed to fire context menu for move-to-retainer-bag", null);
+                    return false;
                 }
-                
-                await Task.Delay(550, token); // Wait for items to return to inventory
+
+                await Task.Delay(550, token);
                 return true;
             }
             catch (Exception ex)
             {
-                LogError?.Invoke($"[AutoMarket] Error clicking Return to Inventory: {ex.Message}", ex);
+                LogError?.Invoke($"[AutoMarket] Error in ClickMoveToRetainerBag: {ex.Message}", ex);
                 return false;
             }
         }
@@ -2746,35 +2831,73 @@ namespace AutomarketPro.Automation
             {
                 var inventoryManager = GetInventoryManagerSafe();
                 if (inventoryManager == null) return false;
-                
+
                 InventoryType[] inventoryTypes = {
                     InventoryType.Inventory1,
                     InventoryType.Inventory2,
                     InventoryType.Inventory3,
                     InventoryType.Inventory4
                 };
-                
+
                 int freeSlots = 0;
                 foreach (var type in inventoryTypes)
                 {
                     var container = inventoryManager->GetInventoryContainer(type);
                     if (container == null) continue;
-                    
+
                     for (int i = 0; i < container->Size; i++)
                     {
                         var slot = container->GetInventorySlot(i);
                         if (slot == null || slot->ItemId == 0)
-                        {
                             freeSlots++;
-                        }
                     }
                 }
-                
+
                 return freeSlots >= requiredSlots;
             }
             catch (Exception ex)
             {
-                LogError?.Invoke($"[AutoMarket] Error checking inventory space: {ex.Message}", ex);
+                LogError?.Invoke($"[AutoMarket] Error checking player inventory space: {ex.Message}", ex);
+                return false;
+            }
+        }
+
+        private unsafe bool HasRetainerBagSpace(int requiredSlots = 1)
+        {
+            try
+            {
+                var inventoryManager = GetInventoryManagerSafe();
+                if (inventoryManager == null) return false;
+
+                InventoryType[] retainerTypes = {
+                    InventoryType.RetainerPage1,
+                    InventoryType.RetainerPage2,
+                    InventoryType.RetainerPage3,
+                    InventoryType.RetainerPage4,
+                    InventoryType.RetainerPage5,
+                    InventoryType.RetainerPage6,
+                    InventoryType.RetainerPage7
+                };
+
+                int freeSlots = 0;
+                foreach (var type in retainerTypes)
+                {
+                    var container = inventoryManager->GetInventoryContainer(type);
+                    if (container == null) continue;
+
+                    for (int i = 0; i < container->Size; i++)
+                    {
+                        var slot = container->GetInventorySlot(i);
+                        if (slot == null || slot->ItemId == 0)
+                            freeSlots++;
+                    }
+                }
+
+                return freeSlots >= requiredSlots;
+            }
+            catch (Exception ex)
+            {
+                LogError?.Invoke($"[AutoMarket] Error checking retainer bag space: {ex.Message}", ex);
                 return false;
             }
         }
@@ -3150,6 +3273,116 @@ namespace AutomarketPro.Automation
                 LogError?.Invoke($"[AutoMarket] Error finding item in inventory: {ex.Message}", ex);
                 return Task.FromResult<ScannedItem?>(null);
             }
+        }
+
+        public async Task<bool> CheckInventorySpaceAsync(int requiredSlots = 1)
+        {
+            return await RunOnFrameworkThreadAsync(() => HasInventorySpace(requiredSlots));
+        }
+
+        public async Task<bool> CheckRetainerBagSpaceAsync(int requiredSlots = 1)
+        {
+            return await RunOnFrameworkThreadAsync(() => HasRetainerBagSpace(requiredSlots));
+        }
+
+        /// <summary>
+        /// Opens the context menu for a listed item and clicks the appropriate "return" entry.
+        /// </summary>
+        /// <param name="itemIndex">Slot index in RetainerSellList (always pass 0 when iterating from top).</param>
+        /// <param name="toRetainerBag">True = move to retainer's bag; false = return to player's inventory.</param>
+        public async Task<bool> WithdrawListedItem(int itemIndex, bool toRetainerBag, CancellationToken token)
+        {
+            if (!await ClickListedItem(itemIndex, token)) return false;
+            return toRetainerBag
+                ? await ClickMoveToRetainerBag(token)
+                : await ClickReturnToPlayerInventory(token);
+        }
+
+        public async Task<(int itemsWithdrawn, bool spaceFull)> ClearAllListedItems(int retainerIndex, bool toRetainerBag, CancellationToken token)
+        {
+            int itemsWithdrawn = 0;
+
+            // Wait for RetainerSellList to be visible and ready
+            bool ready = false;
+            for (int attempts = 0; attempts < 30; attempts++)
+            {
+                await Task.Delay(110, token);
+                unsafe
+                {
+                    if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("RetainerSellList", out var addon)
+                        && ECommons.GenericHelpers.IsAddonReady(addon) && addon->IsVisible)
+                    {
+                        ready = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!ready)
+            {
+                LogError?.Invoke("[AutoMarket] RetainerSellList not ready for clearing", null);
+                return (0, false);
+            }
+
+            // Read market item count — accurate at session start (just opened retainer)
+            int totalToWithdraw = 0;
+            unsafe
+            {
+                var retainerManager = FFXIVClientStructs.FFXIV.Client.Game.RetainerManager.Instance();
+                if (retainerManager != null)
+                {
+                    int validIndex = 0;
+                    for (int i = 0; i < retainerManager->Retainers.Length; i++)
+                    {
+                        var r = retainerManager->Retainers[i];
+                        if (r.RetainerId != 0 && r.Name[0] != 0)
+                        {
+                            if (validIndex == retainerIndex)
+                            {
+                                totalToWithdraw = r.MarketItemCount;
+                                break;
+                            }
+                            validIndex++;
+                        }
+                    }
+                }
+            }
+
+            if (totalToWithdraw == 0)
+            {
+                Log?.Invoke($"[AutoMarket] Retainer {retainerIndex} has no listed market items to withdraw");
+                return (0, false);
+            }
+
+            Log?.Invoke($"[AutoMarket] Withdrawing {totalToWithdraw} listed item(s) from retainer {retainerIndex} → {(toRetainerBag ? "retainer bag" : "player inventory")}...");
+
+            for (int i = 0; i < totalToWithdraw && !token.IsCancellationRequested; i++)
+            {
+                bool hasSpace = toRetainerBag
+                    ? await CheckRetainerBagSpaceAsync()
+                    : await CheckInventorySpaceAsync();
+
+                if (!hasSpace)
+                {
+                    string destination = toRetainerBag ? "retainer bag" : "player inventory";
+                    Log?.Invoke($"[AutoMarket] {destination} is full — stopping clear early");
+                    return (itemsWithdrawn, true);
+                }
+
+                // Always withdraw index 0 — items shift up after each withdrawal
+                if (!await WithdrawListedItem(0, toRetainerBag, token))
+                {
+                    LogError?.Invoke($"[AutoMarket] Failed to withdraw item {i + 1}/{totalToWithdraw}", null);
+                    break;
+                }
+
+                itemsWithdrawn++;
+                Log?.Invoke($"[AutoMarket] Withdrew item {itemsWithdrawn}/{totalToWithdraw}");
+
+                await Task.Delay(Plugin.Configuration.ActionDelay, token);
+            }
+
+            return (itemsWithdrawn, false);
         }
     }
 }

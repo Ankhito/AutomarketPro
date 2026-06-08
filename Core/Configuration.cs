@@ -34,6 +34,12 @@ namespace AutomarketPro.Core
         
         // Ignored items (item IDs that should be excluded from processing)
         public HashSet<uint> IgnoredItemIds { get; set; } = new HashSet<uint>();
+
+        // Clear feature — 0-based retainer indices to SKIP when clearing (opt-out, all cleared by default)
+        public HashSet<int> ClearExcludedRetainers { get; set; } = new HashSet<int>();
+
+        // Clear feature — when true, withdrawn items go to retainer's bag instead of player's inventory
+        public bool ClearReturnToRetainerInventory { get; set; } = false;
         
         // Debug settings
         public bool DebugLogsEnabled { get; set; } = false;
