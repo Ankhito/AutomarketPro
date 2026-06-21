@@ -220,13 +220,8 @@ namespace AutomarketPro.Services
                 totalItems += retainerItems.Count;
                 Log($"[AutoMarket] Retainer {retainerIndex + 1} scan found {retainerItems.Count} item stack(s)");
 
-                bool moreRetainers = retainerIndex < retainerCount - 1;
-                if (moreRetainers)
-                {
-                    await ItemListing.CloseRetainerWindow(false, token);
-                    await ItemListing.CloseRetainerList(false, token);
-                    await Task.Delay(Math.Max(500, Plugin.Configuration.RetainerDelay), token);
-                }
+                await ReturnToRetainerListAfterRetainerWork(false, token);
+                await Task.Delay(Math.Max(500, Plugin.Configuration.RetainerDelay), token);
             }
 
             StatusUpdate?.Invoke("Ready");
@@ -403,15 +398,16 @@ namespace AutomarketPro.Services
             if (needsNextRetainer)
             {
                 Log($"[AutoMarket] Closing retainer {retainerIndex} - {profitable.Count} profitable, {unprofitable.Count} unprofitable items remaining, {ItemListing.SessionListingCount}/{maxListings} listings");
-                
-                // Close RetainerSell window first (pass weVendored flag)
-                await ItemListing.CloseRetainerWindow(weVendored, token);
-                
-                // Close RetainerList window to return to retainer selection (pass weVendored flag)
-                await ItemListing.CloseRetainerList(weVendored, token);
+                await ReturnToRetainerListAfterRetainerWork(weVendored, token);
             }
             
             LastRunSummary.TotalItems = LastRunSummary.ItemsListed + LastRunSummary.ItemsVendored;
+        }
+
+        private async Task ReturnToRetainerListAfterRetainerWork(bool weVendored, CancellationToken token)
+        {
+            await ItemListing.CloseRetainerWindow(weVendored, token);
+            await ItemListing.CloseRetainerList(weVendored, token);
         }
 
         private static void DropCurrentRetainerItems(Queue<ScannedItem> queue, int retainerIndex)
