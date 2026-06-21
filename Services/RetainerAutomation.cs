@@ -95,21 +95,20 @@ namespace AutomarketPro.Services
                 if (config.ListOnlyMode)
                 {
                     // List Only Mode: list only items that passed profitability/sellability checks.
-                    // Retainer bags are scanned per-retainer after opening them.
-                    itemsToList = Scanner.GetProfitableItems().Where(item => item.SourceRetainerIndex == null).ToList();
+                    itemsToList = Scanner.GetProfitableItems();
                     Log($"[AutoMarket] List Only Mode enabled - will list {itemsToList.Count} profitable item(s) and skip vendoring");
                 }
                 else if (config.VendorOnlyMode)
                 {
                     // Vendor Only Mode: vendor only items that failed profitability/sellability checks.
-                    itemsToVendor = Scanner.GetUnprofitableItems().Where(item => item.SourceRetainerIndex == null).ToList();
+                    itemsToVendor = Scanner.GetUnprofitableItems();
                     Log($"[AutoMarket] Vendor Only Mode enabled - will vendor {itemsToVendor.Count} unprofitable item(s) and skip listing");
                 }
                 else
                 {
                     // Normal mode: List profitable, vendor unprofitable
-                    itemsToList = Scanner.GetProfitableItems().Where(item => item.SourceRetainerIndex == null).ToList();
-                    itemsToVendor = Scanner.GetUnprofitableItems().Where(item => item.SourceRetainerIndex == null).ToList();
+                    itemsToList = Scanner.GetProfitableItems();
+                    itemsToVendor = Scanner.GetUnprofitableItems();
                 }
                 
                 if (itemsToList.Count == 0 && itemsToVendor.Count == 0)
@@ -248,32 +247,12 @@ namespace AutomarketPro.Services
             var maxListings = 20;
 
             var retainerInventoryItems = await Scanner.ScanCurrentRetainerInventory(retainerIndex, token);
-            var config = Plugin.Configuration;
-            var localProfitable = config.ListOnlyMode
-                ? retainerInventoryItems.Where(item => item.IsProfitable).ToList()
-                : config.VendorOnlyMode
-                    ? new List<ScannedItem>()
-                    : retainerInventoryItems.Where(item => item.IsProfitable).ToList();
-            var localUnprofitable = config.VendorOnlyMode
-                ? retainerInventoryItems.Where(item => !item.IsProfitable).ToList()
-                : config.ListOnlyMode
-                    ? new List<ScannedItem>()
-                    : retainerInventoryItems.Where(item => !item.IsProfitable).ToList();
-
-            PrependItems(
-                profitable,
-                localProfitable
-                    .OrderByDescending(item => item.SellabilityScore)
-                    .ThenByDescending(item => item.TotalProfit)
-                    .ThenByDescending(item => item.ProfitPerItem));
-
-            PrependItems(
-                unprofitable,
-                localUnprofitable.OrderBy(item => item.VendorPrice));
 
             if (retainerInventoryItems.Count > 0)
             {
-                Log($"[AutoMarket] Retainer {retainerIndex + 1} inventory scan found {retainerInventoryItems.Count} item stack(s): {localProfitable.Count} to list, {localUnprofitable.Count} to vendor");
+                var queuedProfitable = profitable.Count(item => item.SourceRetainerIndex == retainerIndex);
+                var queuedUnprofitable = unprofitable.Count(item => item.SourceRetainerIndex == retainerIndex);
+                Log($"[AutoMarket] Retainer {retainerIndex + 1} inventory scan found {retainerInventoryItems.Count} item stack(s); queued from full scan: {queuedProfitable} to list, {queuedUnprofitable} to vendor");
             }
 
             // Read the retainer's current listing count ONCE — this initial read from RetainerManager
@@ -285,7 +264,8 @@ namespace AutomarketPro.Services
             Log($"[AutoMarket] Retainer {retainerIndex} currently has {currentListings} items listed on market board");
 
             int availableSlots = maxListings - currentListings;
-            int itemsToAttempt = Math.Min(profitable.Count, availableSlots);
+            int eligibleProfitable = CountEligibleForRetainer(profitable, retainerIndex);
+            int itemsToAttempt = Math.Min(eligibleProfitable, availableSlots);
 
             if (availableSlots <= 0)
             {
@@ -293,7 +273,7 @@ namespace AutomarketPro.Services
             }
             else
             {
-                Log($"[AutoMarket] Can list {itemsToAttempt} items on retainer {retainerIndex} ({availableSlots} slots available, {profitable.Count} items in queue)");
+                Log($"[AutoMarket] Can list {itemsToAttempt} items on retainer {retainerIndex} ({availableSlots} slots available, {eligibleProfitable} eligible items in queue)");
             }
             
             // Add delay after selecting "Sell items" before starting to list items
@@ -308,7 +288,7 @@ namespace AutomarketPro.Services
             }
             
             int itemsListedThisRetainer = 0;
-            while (profitable.Count > 0 && itemsListedThisRetainer < itemsToAttempt && !token.IsCancellationRequested)
+            while (TryMoveNextEligibleToFront(profitable, retainerIndex) && itemsListedThisRetainer < itemsToAttempt && !token.IsCancellationRequested)
             {
                 var item = profitable.Peek(); // Peek to check before dequeueing
                 
@@ -382,7 +362,7 @@ namespace AutomarketPro.Services
             
             // Process unprofitable items (vendor them)
             bool weVendored = false; // Track if we vendored any items during this retainer session
-            while (unprofitable.Count > 0 && !token.IsCancellationRequested)
+            while (TryMoveNextEligibleToFront(unprofitable, retainerIndex) && !token.IsCancellationRequested)
             {
                 var item = unprofitable.Peek(); // Peek to check before dequeueing
                 
@@ -445,18 +425,32 @@ namespace AutomarketPro.Services
                 queue.Enqueue(item);
         }
 
-        private static void PrependItems(Queue<ScannedItem> queue, IEnumerable<ScannedItem> items)
+        private static bool IsEligibleForRetainer(ScannedItem item, int retainerIndex)
         {
-            var incoming = items.ToList();
-            if (incoming.Count == 0)
-                return;
+            return item.SourceRetainerIndex == null || item.SourceRetainerIndex == retainerIndex;
+        }
 
-            var existing = queue.ToList();
-            queue.Clear();
-            foreach (var item in incoming)
-                queue.Enqueue(item);
-            foreach (var item in existing)
-                queue.Enqueue(item);
+        private static int CountEligibleForRetainer(Queue<ScannedItem> queue, int retainerIndex)
+        {
+            return queue.Count(item => IsEligibleForRetainer(item, retainerIndex));
+        }
+
+        private static bool TryMoveNextEligibleToFront(Queue<ScannedItem> queue, int retainerIndex)
+        {
+            if (queue.Count == 0)
+                return false;
+
+            var count = queue.Count;
+            for (var i = 0; i < count; i++)
+            {
+                var item = queue.Peek();
+                if (IsEligibleForRetainer(item, retainerIndex))
+                    return true;
+
+                queue.Enqueue(queue.Dequeue());
+            }
+
+            return false;
         }
         
         public async Task StartClearCycle()
