@@ -94,21 +94,22 @@ namespace AutomarketPro.Services
                 
                 if (config.ListOnlyMode)
                 {
-                    // List Only Mode: List ALL items (profitable and unprofitable)
-                    itemsToList = Scanner.Items.ToList();
-                    Log($"[AutoMarket] List Only Mode enabled - will list all {itemsToList.Count} items");
+                    // List Only Mode: list only items that passed profitability/sellability checks.
+                    // Retainer bags are scanned per-retainer after opening them.
+                    itemsToList = Scanner.GetProfitableItems().Where(item => item.SourceRetainerIndex == null).ToList();
+                    Log($"[AutoMarket] List Only Mode enabled - will list {itemsToList.Count} profitable item(s) and skip vendoring");
                 }
                 else if (config.VendorOnlyMode)
                 {
-                    // Vendor Only Mode: Vendor ALL items (profitable and unprofitable)
-                    itemsToVendor = Scanner.Items.ToList();
-                    Log($"[AutoMarket] Vendor Only Mode enabled - will vendor all {itemsToVendor.Count} items");
+                    // Vendor Only Mode: vendor only items that failed profitability/sellability checks.
+                    itemsToVendor = Scanner.GetUnprofitableItems().Where(item => item.SourceRetainerIndex == null).ToList();
+                    Log($"[AutoMarket] Vendor Only Mode enabled - will vendor {itemsToVendor.Count} unprofitable item(s) and skip listing");
                 }
                 else
                 {
                     // Normal mode: List profitable, vendor unprofitable
-                    itemsToList = Scanner.GetProfitableItems();
-                    itemsToVendor = Scanner.GetUnprofitableItems();
+                    itemsToList = Scanner.GetProfitableItems().Where(item => item.SourceRetainerIndex == null).ToList();
+                    itemsToVendor = Scanner.GetUnprofitableItems().Where(item => item.SourceRetainerIndex == null).ToList();
                 }
                 
                 if (itemsToList.Count == 0 && itemsToVendor.Count == 0)
@@ -201,6 +202,35 @@ namespace AutomarketPro.Services
             
             // Step 2: Wait for RetainerSell window and list items
             var maxListings = 20;
+
+            var retainerInventoryItems = await Scanner.ScanCurrentRetainerInventory(retainerIndex, token);
+            var config = Plugin.Configuration;
+            var localProfitable = config.ListOnlyMode
+                ? retainerInventoryItems.Where(item => item.IsProfitable).ToList()
+                : config.VendorOnlyMode
+                    ? new List<ScannedItem>()
+                    : retainerInventoryItems.Where(item => item.IsProfitable).ToList();
+            var localUnprofitable = config.VendorOnlyMode
+                ? retainerInventoryItems.Where(item => !item.IsProfitable).ToList()
+                : config.ListOnlyMode
+                    ? new List<ScannedItem>()
+                    : retainerInventoryItems.Where(item => !item.IsProfitable).ToList();
+
+            PrependItems(
+                profitable,
+                localProfitable
+                    .OrderByDescending(item => item.SellabilityScore)
+                    .ThenByDescending(item => item.TotalProfit)
+                    .ThenByDescending(item => item.ProfitPerItem));
+
+            PrependItems(
+                unprofitable,
+                localUnprofitable.OrderBy(item => item.VendorPrice));
+
+            if (retainerInventoryItems.Count > 0)
+            {
+                Log($"[AutoMarket] Retainer {retainerIndex + 1} inventory scan found {retainerInventoryItems.Count} item stack(s): {localProfitable.Count} to list, {localUnprofitable.Count} to vendor");
+            }
 
             // Read the retainer's current listing count ONCE — this initial read from RetainerManager
             // is accurate (loaded when the retainer bell was accessed). Mid-session reads are stale
@@ -339,6 +369,9 @@ namespace AutomarketPro.Services
                     await Task.Delay(66);
                 }
             }
+
+            DropCurrentRetainerItems(profitable, retainerIndex);
+            DropCurrentRetainerItems(unprofitable, retainerIndex);
             
             // Close retainer windows if we have more items for next retainer OR if retainer is full
             bool needsNextRetainer = (profitable.Count > 0 || unprofitable.Count > 0) || ItemListing.SessionListingCount >= maxListings;
@@ -355,6 +388,31 @@ namespace AutomarketPro.Services
             }
             
             LastRunSummary.TotalItems = LastRunSummary.ItemsListed + LastRunSummary.ItemsVendored;
+        }
+
+        private static void DropCurrentRetainerItems(Queue<ScannedItem> queue, int retainerIndex)
+        {
+            if (queue.Count == 0)
+                return;
+
+            var kept = queue.Where(item => item.SourceRetainerIndex != retainerIndex).ToList();
+            queue.Clear();
+            foreach (var item in kept)
+                queue.Enqueue(item);
+        }
+
+        private static void PrependItems(Queue<ScannedItem> queue, IEnumerable<ScannedItem> items)
+        {
+            var incoming = items.ToList();
+            if (incoming.Count == 0)
+                return;
+
+            var existing = queue.ToList();
+            queue.Clear();
+            foreach (var item in incoming)
+                queue.Enqueue(item);
+            foreach (var item in existing)
+                queue.Enqueue(item);
         }
         
         public async Task StartClearCycle()

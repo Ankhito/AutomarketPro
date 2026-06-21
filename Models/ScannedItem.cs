@@ -19,6 +19,15 @@ namespace AutomarketPro.Models
         public InventoryType InventoryType { get; set; }
         public int InventorySlot { get; set; }
         public bool CanBeListedOnMarketBoard { get; set; } = true;
+        public int? SourceRetainerIndex { get; set; }
+        public string SourceName { get; set; } = "Inventory";
+        public double SellabilityScore { get; set; }
+        public int Sales24h { get; set; }
+        public int UnitsSold24h { get; set; }
+        public int ActiveListings { get; set; }
+        public int ActiveListedQuantity { get; set; }
+        public double? LastSaleAgeHours { get; set; }
+        public string MarketHealth { get; set; } = "Unknown";
     }
 }
 

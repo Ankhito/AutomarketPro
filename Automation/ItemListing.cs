@@ -958,18 +958,33 @@ namespace AutomarketPro.Automation
         /// <summary>
         /// Finds the next stack of the same item after the given slot. Returns (InventoryType, slot) or (-1, -1) if not found.
         /// </summary>
+        private static InventoryType[] GetInventoryTypesForItem(ScannedItem item) =>
+            item.SourceRetainerIndex.HasValue
+                ?
+                [
+                    InventoryType.RetainerPage1,
+                    InventoryType.RetainerPage2,
+                    InventoryType.RetainerPage3,
+                    InventoryType.RetainerPage4,
+                    InventoryType.RetainerPage5,
+                    InventoryType.RetainerPage6,
+                    InventoryType.RetainerPage7
+                ]
+                :
+                [
+                    InventoryType.Inventory1,
+                    InventoryType.Inventory2,
+                    InventoryType.Inventory3,
+                    InventoryType.Inventory4
+                ];
+
         private (InventoryType type, int slot) FindNextStackOfItem(ScannedItem item, InventoryType afterType, int afterSlot)
         {
             try
             {
                 unsafe
                 {
-                    InventoryType[] inventoryTypes = {
-                        InventoryType.Inventory1,
-                        InventoryType.Inventory2,
-                        InventoryType.Inventory3,
-                        InventoryType.Inventory4
-                    };
+                    var inventoryTypes = GetInventoryTypesForItem(item);
                     
                     bool foundAfterSlot = false;
                     
@@ -1046,12 +1061,7 @@ namespace AutomarketPro.Automation
                         return false;
                     }
                     
-                    InventoryType[] inventoryTypes = {
-                        InventoryType.Inventory1,
-                        InventoryType.Inventory2,
-                        InventoryType.Inventory3,
-                        InventoryType.Inventory4
-                    };
+                    var inventoryTypes = GetInventoryTypesForItem(item);
                     
                     foreach (var type in inventoryTypes)
                     {
@@ -1077,9 +1087,9 @@ namespace AutomarketPro.Automation
                 
                 if (foundSlot < 0)
                 {
-                    LogError?.Invoke($"[AutoMarket] Item {item.ItemName} not found in inventory", null);
-                    return false;
-                }
+                LogError?.Invoke($"[AutoMarket] Item {item.ItemName} not found in {item.SourceName}", null);
+                return false;
+            }
                 
                 // Verify retainer UI is ready before opening context menu
                 bool uiReady = await IsRetainerUIReady();

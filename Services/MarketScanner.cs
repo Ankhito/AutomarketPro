@@ -15,6 +15,10 @@ namespace AutomarketPro.Services
 {
     public class MarketScanner : IDisposable
     {
+        private const double SalesHalfLife = 6d;
+        private const double UnitsHalfLife = 30d;
+        private const double FreshSaleHalfLifeHours = 18d;
+        private const double SupplyDaysComfortZone = 4d;
         private readonly AutomarketProPlugin Plugin;
         private readonly HttpClient HttpClient;
         private List<ScannedItem> ScannedItems = new();
@@ -273,32 +277,113 @@ namespace AutomarketPro.Services
                         itemName = $"Item#{slot->ItemId}";
                     }
                     
-                    var item = new ScannedItem
-                    {
-                        ItemId = slot->ItemId,
-                        ItemName = itemName,
-                        Quantity = slot->Quantity,
-                        IsHQ = slot->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality),
-                        VendorPrice = itemData.PriceLow,
-                        StackSize = itemData.StackSize,
-                        InventoryType = type,
-                        InventorySlot = i,
-                        CanBeListedOnMarketBoard = canBeListedOnMB
-                    };
-                    
-                    var existing = ScannedItems.FirstOrDefault(x => x.ItemId == item.ItemId && x.IsHQ == item.IsHQ);
-                    if (existing != null)
-                    {
-                        existing.Quantity += item.Quantity;
-                        // Preserve the market board listing capability (should be same for same item)
-                        existing.CanBeListedOnMarketBoard = item.CanBeListedOnMarketBoard;
-                    }
-                    else
-                    {
-                        ScannedItems.Add(item);
-                    }
+                    AddScannedStack(slot, itemData, type, i, null, "Inventory", canBeListedOnMB);
                 }
             }
+        }
+
+        public async Task<IReadOnlyList<ScannedItem>> ScanCurrentRetainerInventory(int retainerIndex, CancellationToken cancelToken)
+        {
+            try
+            {
+                await Plugin.Framework.RunOnFrameworkThread(() =>
+                {
+                    try
+                    {
+                        RemoveRetainerItems(retainerIndex);
+                        ScanRetainerInventory(retainerIndex);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogError($"[AutoMarket] [SCAN] Error scanning retainer {retainerIndex + 1}", ex);
+                    }
+                });
+
+                var retainerItems = ScannedItems
+                    .Where(item => item.SourceRetainerIndex == retainerIndex)
+                    .ToList();
+
+                if (retainerItems.Count == 0)
+                    return retainerItems;
+
+                await FetchMarketPrices(retainerItems, cancelToken);
+                EvaluateProfitability(retainerItems);
+                return retainerItems;
+            }
+            catch (OperationCanceledException)
+            {
+                return Array.Empty<ScannedItem>();
+            }
+        }
+
+        private void RemoveRetainerItems(int retainerIndex)
+        {
+            ScannedItems.RemoveAll(item => item.SourceRetainerIndex == retainerIndex);
+        }
+
+        private unsafe void ScanRetainerInventory(int retainerIndex)
+        {
+            var inventoryManager = GetInventoryManagerSafe();
+            if (inventoryManager == null || Plugin.DataManager == null)
+            {
+                LogError("[AutoMarket] [SCAN] InventoryManager is null after retries or DataManager is null");
+                return;
+            }
+
+            var itemSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Item>();
+            if (itemSheet == null)
+            {
+                LogError("[AutoMarket] [SCAN] Item sheet is null");
+                return;
+            }
+
+            foreach (var type in RetainerInventoryTypes())
+            {
+                var container = inventoryManager->GetInventoryContainer(type);
+                if (container == null) continue;
+
+                for (int i = 0; i < container->Size; i++)
+                {
+                    var slot = container->GetInventorySlot(i);
+                    if (slot == null || slot->ItemId == 0) continue;
+
+                    var itemData = itemSheet.GetRow(slot->ItemId);
+                    if (itemData.RowId == 0 || itemData.IsUntradable) continue;
+                    if (Plugin.Configuration.IgnoredItemIds.Contains(slot->ItemId)) continue;
+
+                    var canBeListedOnMB = itemData.ItemSearchCategory.RowId != 0;
+                    AddScannedStack(slot, itemData, type, i, retainerIndex, $"Retainer {retainerIndex + 1}", canBeListedOnMB);
+                }
+            }
+        }
+
+        private unsafe void AddScannedStack(
+            InventoryItem* slot,
+            Lumina.Excel.Sheets.Item itemData,
+            InventoryType type,
+            int slotIndex,
+            int? sourceRetainerIndex,
+            string sourceName,
+            bool canBeListedOnMB)
+        {
+            var itemName = itemData.Name.ToString();
+            if (string.IsNullOrWhiteSpace(itemName))
+                itemName = $"Item#{slot->ItemId}";
+
+            ScannedItems.Add(new ScannedItem
+            {
+                ItemId = slot->ItemId,
+                ItemName = itemName,
+                Quantity = slot->Quantity,
+                IsHQ = slot->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality),
+                VendorPrice = itemData.PriceLow,
+                StackSize = itemData.StackSize,
+                InventoryType = type,
+                InventorySlot = slotIndex,
+                CanBeListedOnMarketBoard = canBeListedOnMB,
+                SourceRetainerIndex = sourceRetainerIndex,
+                SourceName = sourceName
+            });
         }
         
         private string? GetWorldNameOnMainThread()
@@ -404,6 +489,9 @@ namespace AutomarketPro.Services
         }
         
         private async Task FetchMarketPrices(CancellationToken cancelToken)
+            => await FetchMarketPrices(ScannedItems, cancelToken);
+
+        private async Task FetchMarketPrices(IEnumerable<ScannedItem> items, CancellationToken cancelToken)
         {
             string world = CachedWorldName ?? "Excalibur";
             bool useDataCenter = Plugin.Configuration.DataCenterScan;
@@ -414,7 +502,7 @@ namespace AutomarketPro.Services
                 Log($"[AutoMarket] Using data center scan mode: {location}");
             }
             
-            foreach (var item in ScannedItems)
+            foreach (var item in items)
             {
                 if (cancelToken.IsCancellationRequested) break;
                 
@@ -445,7 +533,7 @@ namespace AutomarketPro.Services
                             .OrderBy(l => l.pricePerUnit)
                             .First().pricePerUnit;
                         
-                        item.MarketPrice = lowestPrice;
+                        ApplyMarketData(item, data, lowestPrice);
                         
                         // Cache the lowest data center price if Data Center Scan is enabled
                         if (useDataCenter)
@@ -486,11 +574,14 @@ namespace AutomarketPro.Services
         }
         
         private void EvaluateProfitability()
+            => EvaluateProfitability(ScannedItems);
+
+        private void EvaluateProfitability(IEnumerable<ScannedItem> items)
         {
             var config = Plugin.Configuration;
             bool useDataCenter = config.DataCenterScan;
             
-            foreach (var item in ScannedItems)
+            foreach (var item in items)
             {
                 // If item cannot be listed on market board, automatically set to vendor
                 if (!item.CanBeListedOnMarketBoard)
@@ -523,7 +614,7 @@ namespace AutomarketPro.Services
                     var cachedProfitMargin = (int)item.ListingPrice - (int)item.VendorPrice;
                     item.ProfitPerItem = cachedProfitMargin;
                     item.TotalProfit = cachedProfitMargin * item.Quantity;
-                    item.IsProfitable = item.TotalProfit > config.MinProfitThreshold;
+                    item.IsProfitable = item.TotalProfit > config.MinProfitThreshold && item.SellabilityScore > 0;
                     continue;
                 }
                 
@@ -557,14 +648,23 @@ namespace AutomarketPro.Services
                 
                 item.ProfitPerItem = profitMargin;
                 item.TotalProfit = profitMargin * item.Quantity;
-                item.IsProfitable = item.TotalProfit > config.MinProfitThreshold;
+                item.IsProfitable = item.TotalProfit > config.MinProfitThreshold && item.SellabilityScore > 0;
             }
             
-            // Sort by total profit descending
-            ScannedItems = ScannedItems.OrderByDescending(i => i.TotalProfit).ToList();
+            // Sort by sellability first, then expected profit within the same sell-through band.
+            ScannedItems = ScannedItems
+                .OrderByDescending(i => i.SellabilityScore)
+                .ThenByDescending(i => i.TotalProfit)
+                .ThenByDescending(i => i.ProfitPerItem)
+                .ToList();
         }
         
-        public List<ScannedItem> GetProfitableItems() => ScannedItems.Where(i => i.IsProfitable).ToList();
+        public List<ScannedItem> GetProfitableItems() => ScannedItems
+            .Where(i => i.IsProfitable)
+            .OrderByDescending(i => i.SellabilityScore)
+            .ThenByDescending(i => i.TotalProfit)
+            .ThenByDescending(i => i.ProfitPerItem)
+            .ToList();
         public List<ScannedItem> GetUnprofitableItems() => ScannedItems.Where(i => !i.IsProfitable).ToList();
         
         /// <summary>
@@ -600,7 +700,7 @@ namespace AutomarketPro.Services
                         .OrderBy(l => l.pricePerUnit)
                         .First().pricePerUnit;
                     
-                    item.MarketPrice = lowestPrice;
+                    ApplyMarketData(item, data, lowestPrice);
                     
                     // Cache the lowest data center price if Data Center Scan is enabled
                     if (useDataCenter)
@@ -713,6 +813,70 @@ namespace AutomarketPro.Services
             item.IsProfitable = item.TotalProfit > config.MinProfitThreshold;
         }
         
+        private static InventoryType[] RetainerInventoryTypes() =>
+        [
+            InventoryType.RetainerPage1,
+            InventoryType.RetainerPage2,
+            InventoryType.RetainerPage3,
+            InventoryType.RetainerPage4,
+            InventoryType.RetainerPage5,
+            InventoryType.RetainerPage6,
+            InventoryType.RetainerPage7
+        ];
+
+        private static void ApplyMarketData(ScannedItem item, UniversalisResponse data, uint lowestPrice)
+        {
+            item.MarketPrice = lowestPrice;
+            item.ActiveListings = data.listings?.Length ?? 0;
+            item.ActiveListedQuantity = data.listings?.Sum(listing => Math.Max(0, listing.quantity)) ?? 0;
+
+            var now = DateTimeOffset.UtcNow;
+            var recentSales = data.recentHistory?
+                .Where(history => now - DateTimeOffset.FromUnixTimeSeconds(history.timestamp) <= TimeSpan.FromHours(24))
+                .ToArray() ?? Array.Empty<RecentHistory>();
+
+            item.Sales24h = recentSales.Length;
+            item.UnitsSold24h = recentSales.Sum(history => Math.Max(0, history.quantity));
+            item.LastSaleAgeHours = data.recentHistory?.Length > 0
+                ? Math.Max(0, (now - DateTimeOffset.FromUnixTimeSeconds(data.recentHistory.Max(history => history.timestamp))).TotalHours)
+                : null;
+
+            item.SellabilityScore = CalculateSellability(item);
+            item.MarketHealth = item.Sales24h == 0 ? "No 24h movement" :
+                item.SellabilityScore < 0.45 ? "Thin market" :
+                item.ActiveListedQuantity > 0 && item.UnitsSold24h > 0 && item.ActiveListedQuantity / (double)item.UnitsSold24h > SupplyDaysComfortZone ? "Crowded market" :
+                item.SellabilityScore < 0.70 ? "Healthy" :
+                "Strong";
+        }
+
+        private static double CalculateSellability(ScannedItem item)
+        {
+            if (item.Sales24h <= 0 || item.UnitsSold24h <= 0)
+                return 0;
+
+            var saleVelocity = SaturatingScore(item.Sales24h, SalesHalfLife);
+            var unitVelocity = SaturatingScore(item.UnitsSold24h, UnitsHalfLife);
+            var recency = Math.Exp(-(item.LastSaleAgeHours ?? 36d) / FreshSaleHalfLifeHours);
+            var liquidity = 0.50 * saleVelocity + 0.30 * unitVelocity + 0.20 * recency;
+            var supply = SupplyScore(item.ActiveListedQuantity, item.UnitsSold24h);
+            return liquidity * supply;
+        }
+
+        private static double SaturatingScore(double value, double halfLife)
+            => 1d - Math.Exp(-Math.Max(value, 0d) / halfLife);
+
+        private static double SupplyScore(int activeSupply, int unitsSold24h)
+        {
+            if (unitsSold24h <= 0)
+                return 0;
+
+            if (activeSupply <= 0)
+                return 0.75;
+
+            var daysOfSupply = activeSupply / (double)unitsSold24h;
+            return 0.25d + 0.75d / (1d + daysOfSupply / SupplyDaysComfortZone);
+        }
+
         public void Dispose()
         {
             CancelToken?.Cancel();

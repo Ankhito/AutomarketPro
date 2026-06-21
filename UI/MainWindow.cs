@@ -590,7 +590,7 @@ namespace AutomarketPro.UI
                 
                 var items = Scanner.Items ?? new List<ScannedItem>();
                 
-                SafeText($"Inventory Scan Results ({items.Count} items)");
+                SafeText($"Inventory / Retainer Scan Results ({items.Count} item stacks)");
                 ImGui.Separator();
                 
                 if (items.Count == 0)
@@ -599,20 +599,23 @@ namespace AutomarketPro.UI
                     return;
                 }
                 
-                if (ImGui.BeginTable("ItemsTable", 9, 
+                if (ImGui.BeginTable("ItemsTable", 12, 
                 ImGuiTableFlags.Sortable | ImGuiTableFlags.RowBg | 
                 ImGuiTableFlags.BordersOuter | ImGuiTableFlags.BordersV | 
                 ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingFixedFit))
                 {
+                    ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 90);
                     ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthFixed, 200);
                     ImGui.TableSetupColumn("HQ", ImGuiTableColumnFlags.WidthFixed, 30);
                     ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 40);
                     ImGui.TableSetupColumn("Vendor", ImGuiTableColumnFlags.WidthFixed, 70);
                     ImGui.TableSetupColumn("Market", ImGuiTableColumnFlags.WidthFixed, 70);
                     ImGui.TableSetupColumn("List Price", ImGuiTableColumnFlags.WidthFixed, 70);
+                    ImGui.TableSetupColumn("Sales 24h", ImGuiTableColumnFlags.WidthFixed, 70);
+                    ImGui.TableSetupColumn("Score", ImGuiTableColumnFlags.WidthFixed, 60);
+                    ImGui.TableSetupColumn("Health", ImGuiTableColumnFlags.WidthFixed, 110);
                     ImGui.TableSetupColumn("Profit/Item", ImGuiTableColumnFlags.WidthFixed, 80);
                     ImGui.TableSetupColumn("Total Profit", ImGuiTableColumnFlags.WidthFixed, 90);
-                    ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 100);
                     ImGui.TableHeadersRow();
                     
                     foreach (var item in items)
@@ -620,27 +623,39 @@ namespace AutomarketPro.UI
                         ImGui.TableNextRow();
                         
                         ImGui.TableSetColumnIndex(0);
+                        SafeText(item.SourceName);
+
+                        ImGui.TableSetColumnIndex(1);
                         // Safe string handling - ImGui crashes on null/invalid strings
                         var safeName = string.IsNullOrEmpty(item.ItemName) ? $"Item#{item.ItemId}" : item.ItemName;
                         SafeText(safeName);
                         
-                        ImGui.TableSetColumnIndex(1);
+                        ImGui.TableSetColumnIndex(2);
                         if (item.IsHQ)
                             ImGui.TextColored(new Vector4(1, 0.8f, 0.4f, 1), "[HQ]");
                         
-                        ImGui.TableSetColumnIndex(2);
+                        ImGui.TableSetColumnIndex(3);
                         SafeText($"{item.Quantity}");
                         
-                        ImGui.TableSetColumnIndex(3);
+                        ImGui.TableSetColumnIndex(4);
                         SafeText($"{item.VendorPrice:N0}");
                         
-                        ImGui.TableSetColumnIndex(4);
+                        ImGui.TableSetColumnIndex(5);
                         SafeText($"{item.MarketPrice:N0}");
                         
-                        ImGui.TableSetColumnIndex(5);
+                        ImGui.TableSetColumnIndex(6);
                         SafeText($"{item.ListingPrice:N0}");
                         
-                        ImGui.TableSetColumnIndex(6);
+                        ImGui.TableSetColumnIndex(7);
+                        SafeText($"{item.Sales24h:N0}");
+
+                        ImGui.TableSetColumnIndex(8);
+                        SafeText($"{item.SellabilityScore:0.00}");
+
+                        ImGui.TableSetColumnIndex(9);
+                        SafeText(item.MarketHealth);
+
+                        ImGui.TableSetColumnIndex(10);
                         if (item.ProfitPerItem > 0)
                             SafeTextColored(new Vector4(0, 1, 0, 1), $"+{item.ProfitPerItem:N0}");
                         else if (item.ProfitPerItem < 0)
@@ -648,19 +663,13 @@ namespace AutomarketPro.UI
                         else
                             ImGui.Text("0");
                         
-                        ImGui.TableSetColumnIndex(7);
+                        ImGui.TableSetColumnIndex(11);
                         if (item.TotalProfit > 0)
                             SafeTextColored(new Vector4(0, 1, 0, 1), $"+{item.TotalProfit:N0}");
                         else if (item.TotalProfit < 0)
                             SafeTextColored(new Vector4(1, 0, 0, 1), $"{item.TotalProfit:N0}");
                         else
                             ImGui.Text("0");
-                        
-                        ImGui.TableSetColumnIndex(8);
-                        if (item.IsProfitable)
-                            ImGui.TextColored(new Vector4(0, 1, 0, 1), "→ List on MB");
-                        else
-                            ImGui.TextColored(new Vector4(1, 0.5f, 0, 1), "→ Vendor");
                     }
                     
                     ImGui.EndTable();
@@ -730,7 +739,7 @@ namespace AutomarketPro.UI
                     }
                 }
                 if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip("When enabled, lists ALL items on market board (even unprofitable ones)");
+                    ImGui.SetTooltip("When enabled, only lists items that pass the profitability and sellability checks; skips vendoring.");
                     
                 var vendorOnlyMode = Plugin.Configuration.VendorOnlyMode;
                 if (ImGui.Checkbox("Vendor Only Mode", ref vendorOnlyMode))
@@ -743,7 +752,7 @@ namespace AutomarketPro.UI
                     }
                 }
                 if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip("When enabled, vendors ALL items (even profitable ones)");
+                    ImGui.SetTooltip("When enabled, only vendors items that fail the profitability or sellability checks; skips market listings.");
             }
             catch (Exception ex)
             {
