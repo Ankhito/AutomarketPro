@@ -447,7 +447,7 @@ namespace AutomarketPro
             
             if (string.IsNullOrEmpty(args))
             {
-                MainWindow.IsOpen = true;
+                MainWindow.OpenVisible();
                 return;
             }
             
@@ -469,8 +469,7 @@ namespace AutomarketPro
                     ShowSummary();
                     break;
                 case "config":
-                    MainWindow.IsOpen = true;
-                    MainWindow.ShowSettingsTab = true;
+                    MainWindow.OpenVisible(true);
                     break;
                 default:
                     PluginLog?.Warning($"[AutoMarket] Unknown command: {subCommand}");
@@ -515,8 +514,7 @@ namespace AutomarketPro
             Initialize();
             if (_initialized && MainWindow != null)
             {
-                MainWindow.IsOpen = true;
-                MainWindow.ShowSettingsTab = true;
+                MainWindow.OpenVisible(true);
                 PluginLog?.Info("[AutoMarket] OpenConfigUI requested.");
             }
             else
@@ -532,7 +530,7 @@ namespace AutomarketPro
             Initialize();
             if (_initialized && MainWindow != null)
             {
-                MainWindow.IsOpen = true;
+                MainWindow.OpenVisible();
                 PluginLog?.Info("[AutoMarket] OpenMainUI requested.");
             }
             else

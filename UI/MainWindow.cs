@@ -19,6 +19,7 @@ namespace AutomarketPro.UI
         private readonly MarketScanner Scanner;
         private readonly RetainerAutomation Automation;
         private string AutomationStatus = "Ready";
+        private bool forceVisiblePlacement = false;
         public bool ShowSettingsTab = false;
         
         // Ignore tab - inventory items cache
@@ -240,14 +241,48 @@ namespace AutomarketPro.UI
             
             Size = new Vector2(800, 600);
             SizeCondition = Dalamud.Bindings.ImGui.ImGuiCond.FirstUseEver;
+            Flags = ImGuiWindowFlags.NoCollapse;
             
             Automation.StatusUpdate += (status) => AutomationStatus = string.IsNullOrEmpty(status) ? "Ready" : status;
             
             SizeConstraints = new WindowSizeConstraints
             {
                 MinimumSize = new Vector2(700, 500),
-                MaximumSize = new Vector2(1400, 900)
+                MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
             };
+        }
+
+        public void OpenVisible(bool settingsTab = false)
+        {
+            ShowSettingsTab = settingsTab;
+            forceVisiblePlacement = true;
+            IsOpen = true;
+            Plugin?.PluginLog?.Info($"[AutoMarket] MainWindow.OpenVisible(settingsTab={settingsTab})");
+        }
+
+        public override void PreDraw()
+        {
+            if (!forceVisiblePlacement)
+                return;
+
+            forceVisiblePlacement = false;
+
+            try
+            {
+                var viewport = ImGui.GetMainViewport();
+                var workPos = viewport.WorkPos;
+                var workSize = viewport.WorkSize;
+                var size = new Vector2(MathF.Min(900f, MathF.Max(700f, workSize.X - 80f)), MathF.Min(650f, MathF.Max(500f, workSize.Y - 80f)));
+                var pos = workPos + new Vector2(MathF.Max(20f, (workSize.X - size.X) * 0.5f), MathF.Max(20f, (workSize.Y - size.Y) * 0.5f));
+
+                ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+                ImGui.SetNextWindowPos(pos, ImGuiCond.Always);
+                Plugin?.PluginLog?.Info($"[AutoMarket] Forced window visible at {pos.X:N0},{pos.Y:N0} size {size.X:N0}x{size.Y:N0}");
+            }
+            catch (Exception ex)
+            {
+                Plugin?.PluginLog?.Error(ex, "[AutoMarket] Failed to force visible window placement");
+            }
         }
         
         public override void Draw()
