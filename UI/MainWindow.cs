@@ -723,7 +723,9 @@ namespace AutomarketPro.UI
                 ImGui.TableSetupColumn("Total Profit", ImGuiTableColumnFlags.WidthFixed, 90);
                 ImGui.TableHeadersRow();
 
-                foreach (var item in items)
+                var displayItems = ApplyResultsSort(items);
+
+                foreach (var item in displayItems)
                 {
                     ImGui.TableNextRow();
 
@@ -777,6 +779,54 @@ namespace AutomarketPro.UI
 
                 ImGui.EndTable();
             }
+        }
+
+        private static List<ScannedItem> ApplyResultsSort(IReadOnlyList<ScannedItem> items)
+        {
+            var sorted = items.ToList();
+            var sortSpecs = ImGui.TableGetSortSpecs();
+            if (sortSpecs.SpecsCount > 0)
+            {
+                var spec = sortSpecs.Specs;
+                var columnIndex = spec.ColumnIndex;
+                var descending = spec.SortDirection == ImGuiSortDirection.Descending;
+
+                sorted = columnIndex switch
+                {
+                    0 => SortByText(sorted, item => item.SourceName, descending),
+                    1 => SortByText(sorted, item => string.IsNullOrEmpty(item.ItemName) ? $"Item#{item.ItemId}" : item.ItemName, descending),
+                    2 => SortBy(sorted, item => item.IsHQ ? 1 : 0, descending),
+                    3 => SortBy(sorted, item => item.Quantity, descending),
+                    4 => SortBy(sorted, item => item.VendorPrice, descending),
+                    5 => SortBy(sorted, item => item.MarketPrice, descending),
+                    6 => SortBy(sorted, item => item.ListingPrice, descending),
+                    7 => SortBy(sorted, item => item.Sales24h, descending),
+                    8 => SortBy(sorted, item => item.SellabilityScore, descending),
+                    9 => SortByText(sorted, item => item.MarketHealth, descending),
+                    10 => SortBy(sorted, item => item.ProfitPerItem, descending),
+                    11 => SortBy(sorted, item => item.TotalProfit, descending),
+                    _ => sorted
+                };
+
+                if (sortSpecs.SpecsDirty)
+                    sortSpecs.SpecsDirty = false;
+            }
+
+            return sorted;
+        }
+
+        private static List<ScannedItem> SortBy<TKey>(IEnumerable<ScannedItem> items, Func<ScannedItem, TKey> keySelector, bool descending)
+        {
+            return descending
+                ? items.OrderByDescending(keySelector).ToList()
+                : items.OrderBy(keySelector).ToList();
+        }
+
+        private static List<ScannedItem> SortByText(IEnumerable<ScannedItem> items, Func<ScannedItem, string> keySelector, bool descending)
+        {
+            return descending
+                ? items.OrderByDescending(keySelector, StringComparer.OrdinalIgnoreCase).ToList()
+                : items.OrderBy(keySelector, StringComparer.OrdinalIgnoreCase).ToList();
         }
         
         private void DrawAutomationTab()

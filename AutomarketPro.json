@@ -7,7 +7,7 @@
     "RepoUrl": "https://github.com/Ankhito/AutomarketPro",
     "Tags": [ "market", "automation", "retainer", "universalis" ],
     "CategoryTags": [ "Utility", "Automation" ],
-    "AssemblyVersion": "1.0.0.20",
+    "AssemblyVersion": "1.0.0.21",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
     "HasConfigUi": true,
