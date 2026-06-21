@@ -284,6 +284,29 @@ namespace AutomarketPro.UI
                 Plugin?.PluginLog?.Error(ex, "[AutoMarket] Failed to force visible window placement");
             }
         }
+
+        public void DrawDirect()
+        {
+            if (!IsOpen)
+                return;
+
+            try
+            {
+                PreDraw();
+
+                var open = IsOpen;
+                if (ImGui.Begin("AutoMarket Pro##AutoMarketProMain", ref open, Flags))
+                {
+                    Draw();
+                }
+                ImGui.End();
+                IsOpen = open;
+            }
+            catch (Exception ex)
+            {
+                Plugin?.PluginLog?.Error(ex, "[AutoMarket] Direct window draw failed");
+            }
+        }
         
         public override void Draw()
         {

@@ -500,11 +500,11 @@ namespace AutomarketPro
             
             try
             {
-                WindowSystem.Draw();
+                MainWindow.DrawDirect();
             }
             catch (Exception ex)
             {
-                LogError($"[AutoMarket] Error in WindowSystem.Draw()", ex);
+                LogError($"[AutoMarket] Error in DrawUI()", ex);
             }
         }
         
