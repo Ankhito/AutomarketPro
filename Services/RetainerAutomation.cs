@@ -189,6 +189,50 @@ namespace AutomarketPro.Services
                 await Task.Delay((int)(Plugin.Configuration.RetainerDelay * 1.1), token);
             }
         }
+
+        public async Task<int> ScanAllRetainerInventoriesForMarketScan(CancellationToken token)
+        {
+            int totalItems = 0;
+            int retainerCount = RetainerInteraction.GetRetainerCount();
+
+            if (retainerCount == 0)
+            {
+                Log("[AutoMarket] Retainer scan skipped: no retainers found. Open a summoning bell if retainers are unavailable.");
+                return 0;
+            }
+
+            Log($"[AutoMarket] Scanning {retainerCount} retainer(s) for market scan");
+
+            for (int retainerIndex = 0; retainerIndex < retainerCount && !token.IsCancellationRequested; retainerIndex++)
+            {
+                StatusUpdate?.Invoke($"Scanning Retainer {retainerIndex + 1}...");
+                Log($"[AutoMarket] Opening Retainer {retainerIndex + 1} for scan");
+
+                var success = await RetainerInteraction.OpenAndSelectRetainer(retainerIndex, token);
+                if (!success)
+                {
+                    LogError($"[AutoMarket] Failed to open retainer {retainerIndex + 1} for scan");
+                    continue;
+                }
+
+                await Task.Delay(Math.Max(500, Plugin.Configuration.RetainerDelay), token);
+
+                var retainerItems = await Scanner.ScanCurrentRetainerInventory(retainerIndex, token, fetchMarketData: false);
+                totalItems += retainerItems.Count;
+                Log($"[AutoMarket] Retainer {retainerIndex + 1} scan found {retainerItems.Count} item stack(s)");
+
+                bool moreRetainers = retainerIndex < retainerCount - 1;
+                if (moreRetainers)
+                {
+                    await ItemListing.CloseRetainerWindow(false, token);
+                    await ItemListing.CloseRetainerList(false, token);
+                    await Task.Delay(Math.Max(500, Plugin.Configuration.RetainerDelay), token);
+                }
+            }
+
+            StatusUpdate?.Invoke("Ready");
+            return totalItems;
+        }
         
         private async Task SimulateRetainerInteraction(int retainerIndex, Queue<ScannedItem> profitable, Queue<ScannedItem> unprofitable, CancellationToken token)
         {

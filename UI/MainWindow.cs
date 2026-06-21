@@ -657,86 +657,125 @@ namespace AutomarketPro.UI
                     return;
                 }
                 
-                if (ImGui.BeginTable("ItemsTable", 12, 
-                ImGuiTableFlags.Sortable | ImGuiTableFlags.RowBg | 
-                ImGuiTableFlags.BordersOuter | ImGuiTableFlags.BordersV | 
-                ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingFixedFit))
+                if (ImGui.BeginTabBar("ScanResultSources"))
                 {
-                    ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 90);
-                    ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthFixed, 200);
-                    ImGui.TableSetupColumn("HQ", ImGuiTableColumnFlags.WidthFixed, 30);
-                    ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 40);
-                    ImGui.TableSetupColumn("Vendor", ImGuiTableColumnFlags.WidthFixed, 70);
-                    ImGui.TableSetupColumn("Market", ImGuiTableColumnFlags.WidthFixed, 70);
-                    ImGui.TableSetupColumn("List Price", ImGuiTableColumnFlags.WidthFixed, 70);
-                    ImGui.TableSetupColumn("Sales 24h", ImGuiTableColumnFlags.WidthFixed, 70);
-                    ImGui.TableSetupColumn("Score", ImGuiTableColumnFlags.WidthFixed, 60);
-                    ImGui.TableSetupColumn("Health", ImGuiTableColumnFlags.WidthFixed, 110);
-                    ImGui.TableSetupColumn("Profit/Item", ImGuiTableColumnFlags.WidthFixed, 80);
-                    ImGui.TableSetupColumn("Total Profit", ImGuiTableColumnFlags.WidthFixed, 90);
-                    ImGui.TableHeadersRow();
-                    
-                    foreach (var item in items)
+                    if (ImGui.BeginTabItem($"All ({items.Count})"))
                     {
-                        ImGui.TableNextRow();
-                        
-                        ImGui.TableSetColumnIndex(0);
-                        SafeText(item.SourceName);
-
-                        ImGui.TableSetColumnIndex(1);
-                        // Safe string handling - ImGui crashes on null/invalid strings
-                        var safeName = string.IsNullOrEmpty(item.ItemName) ? $"Item#{item.ItemId}" : item.ItemName;
-                        SafeText(safeName);
-                        
-                        ImGui.TableSetColumnIndex(2);
-                        if (item.IsHQ)
-                            ImGui.TextColored(new Vector4(1, 0.8f, 0.4f, 1), "[HQ]");
-                        
-                        ImGui.TableSetColumnIndex(3);
-                        SafeText($"{item.Quantity}");
-                        
-                        ImGui.TableSetColumnIndex(4);
-                        SafeText($"{item.VendorPrice:N0}");
-                        
-                        ImGui.TableSetColumnIndex(5);
-                        SafeText($"{item.MarketPrice:N0}");
-                        
-                        ImGui.TableSetColumnIndex(6);
-                        SafeText($"{item.ListingPrice:N0}");
-                        
-                        ImGui.TableSetColumnIndex(7);
-                        SafeText($"{item.Sales24h:N0}");
-
-                        ImGui.TableSetColumnIndex(8);
-                        SafeText($"{item.SellabilityScore:0.00}");
-
-                        ImGui.TableSetColumnIndex(9);
-                        SafeText(item.MarketHealth);
-
-                        ImGui.TableSetColumnIndex(10);
-                        if (item.ProfitPerItem > 0)
-                            SafeTextColored(new Vector4(0, 1, 0, 1), $"+{item.ProfitPerItem:N0}");
-                        else if (item.ProfitPerItem < 0)
-                            SafeTextColored(new Vector4(1, 0, 0, 1), $"{item.ProfitPerItem:N0}");
-                        else
-                            ImGui.Text("0");
-                        
-                        ImGui.TableSetColumnIndex(11);
-                        if (item.TotalProfit > 0)
-                            SafeTextColored(new Vector4(0, 1, 0, 1), $"+{item.TotalProfit:N0}");
-                        else if (item.TotalProfit < 0)
-                            SafeTextColored(new Vector4(1, 0, 0, 1), $"{item.TotalProfit:N0}");
-                        else
-                            ImGui.Text("0");
+                        DrawResultsItemsTable(items, "All");
+                        ImGui.EndTabItem();
                     }
-                    
-                    ImGui.EndTable();
+
+                    var inventoryItems = items.Where(item => item.SourceRetainerIndex == null).ToList();
+                    if (ImGui.BeginTabItem($"Inventory ({inventoryItems.Count})"))
+                    {
+                        DrawResultsItemsTable(inventoryItems, "Inventory");
+                        ImGui.EndTabItem();
+                    }
+
+                    foreach (var group in items
+                        .Where(item => item.SourceRetainerIndex != null)
+                        .GroupBy(item => item.SourceRetainerIndex!.Value)
+                        .OrderBy(group => group.Key))
+                    {
+                        var sourceItems = group.ToList();
+                        var sourceName = sourceItems.FirstOrDefault()?.SourceName ?? $"Retainer {group.Key + 1}";
+                        if (ImGui.BeginTabItem($"{sourceName} ({sourceItems.Count})"))
+                        {
+                            DrawResultsItemsTable(sourceItems, sourceName);
+                            ImGui.EndTabItem();
+                        }
+                    }
+
+                    ImGui.EndTabBar();
                 }
             }
             catch (Exception ex)
             {
                 SafeTextColored(new Vector4(1, 0, 0, 1), $"Error in DrawResultsTable: {ex?.Message ?? "Unknown"}");
                 LogError("[AutoMarket] DrawResultsTable error", ex);
+            }
+        }
+
+        private void DrawResultsItemsTable(IReadOnlyList<ScannedItem> items, string tableIdSuffix)
+        {
+            if (items.Count == 0)
+            {
+                SafeTextColored(new Vector4(0.5f, 0.5f, 0.5f, 1), "No item stacks in this source.");
+                return;
+            }
+
+            if (ImGui.BeginTable($"ItemsTable##{tableIdSuffix}", 12,
+                ImGuiTableFlags.Sortable | ImGuiTableFlags.RowBg |
+                ImGuiTableFlags.BordersOuter | ImGuiTableFlags.BordersV |
+                ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingFixedFit))
+            {
+                ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 90);
+                ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthFixed, 200);
+                ImGui.TableSetupColumn("HQ", ImGuiTableColumnFlags.WidthFixed, 30);
+                ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 40);
+                ImGui.TableSetupColumn("Vendor", ImGuiTableColumnFlags.WidthFixed, 70);
+                ImGui.TableSetupColumn("Market", ImGuiTableColumnFlags.WidthFixed, 70);
+                ImGui.TableSetupColumn("List Price", ImGuiTableColumnFlags.WidthFixed, 70);
+                ImGui.TableSetupColumn("Sales 24h", ImGuiTableColumnFlags.WidthFixed, 70);
+                ImGui.TableSetupColumn("Score", ImGuiTableColumnFlags.WidthFixed, 60);
+                ImGui.TableSetupColumn("Health", ImGuiTableColumnFlags.WidthFixed, 110);
+                ImGui.TableSetupColumn("Profit/Item", ImGuiTableColumnFlags.WidthFixed, 80);
+                ImGui.TableSetupColumn("Total Profit", ImGuiTableColumnFlags.WidthFixed, 90);
+                ImGui.TableHeadersRow();
+
+                foreach (var item in items)
+                {
+                    ImGui.TableNextRow();
+
+                    ImGui.TableSetColumnIndex(0);
+                    SafeText(item.SourceName);
+
+                    ImGui.TableSetColumnIndex(1);
+                    SafeText(string.IsNullOrEmpty(item.ItemName) ? $"Item#{item.ItemId}" : item.ItemName);
+
+                    ImGui.TableSetColumnIndex(2);
+                    if (item.IsHQ)
+                        ImGui.TextColored(new Vector4(1, 0.8f, 0.4f, 1), "[HQ]");
+
+                    ImGui.TableSetColumnIndex(3);
+                    SafeText($"{item.Quantity}");
+
+                    ImGui.TableSetColumnIndex(4);
+                    SafeText($"{item.VendorPrice:N0}");
+
+                    ImGui.TableSetColumnIndex(5);
+                    SafeText($"{item.MarketPrice:N0}");
+
+                    ImGui.TableSetColumnIndex(6);
+                    SafeText($"{item.ListingPrice:N0}");
+
+                    ImGui.TableSetColumnIndex(7);
+                    SafeText($"{item.Sales24h:N0}");
+
+                    ImGui.TableSetColumnIndex(8);
+                    SafeText($"{item.SellabilityScore:0.00}");
+
+                    ImGui.TableSetColumnIndex(9);
+                    SafeText(item.MarketHealth);
+
+                    ImGui.TableSetColumnIndex(10);
+                    if (item.ProfitPerItem > 0)
+                        SafeTextColored(new Vector4(0, 1, 0, 1), $"+{item.ProfitPerItem:N0}");
+                    else if (item.ProfitPerItem < 0)
+                        SafeTextColored(new Vector4(1, 0, 0, 1), $"{item.ProfitPerItem:N0}");
+                    else
+                        ImGui.Text("0");
+
+                    ImGui.TableSetColumnIndex(11);
+                    if (item.TotalProfit > 0)
+                        SafeTextColored(new Vector4(0, 1, 0, 1), $"+{item.TotalProfit:N0}");
+                    else if (item.TotalProfit < 0)
+                        SafeTextColored(new Vector4(1, 0, 0, 1), $"{item.TotalProfit:N0}");
+                    else
+                        ImGui.Text("0");
+                }
+
+                ImGui.EndTable();
             }
         }
         

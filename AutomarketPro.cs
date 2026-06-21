@@ -9,6 +9,7 @@ using ECommons.Automation;
 using ECommons;
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using AutomarketPro.Core;
 using AutomarketPro.Services;
@@ -367,6 +368,17 @@ namespace AutomarketPro
             {
                 registered = false;
             }
+        }
+
+        public async Task<int> ScanAllRetainersForMarketScan(CancellationToken token)
+        {
+            if (!_initialized)
+                Initialize();
+
+            if (Automation == null)
+                return 0;
+
+            return await Automation.ScanAllRetainerInventoriesForMarketScan(token);
         }
         
         private unsafe void Tick(IFramework framework)

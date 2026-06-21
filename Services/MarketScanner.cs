@@ -133,7 +133,7 @@ namespace AutomarketPro.Services
                 DataCenterPriceCache.Clear();
                 
                 // Send chat message when scanning starts
-                Plugin?.PrintChat("[AutoMarket] Scanning inventory started...");
+                Plugin?.PrintChat("[AutoMarket] Scanning inventory and retainers started...");
                 
                 // Small delay before first scan to let game fully initialize (prevents crashes on first use)
                 await Task.Delay(550, CancelToken.Token);
@@ -151,6 +151,19 @@ namespace AutomarketPro.Services
                         LogError("[AutoMarket] [SCAN] Error during inventory scan", ex);
                     }
                 });
+
+                try
+                {
+                    await Plugin.ScanAllRetainersForMarketScan(CancelToken.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    LogError("[AutoMarket] [SCAN] Error during retainer scan", ex);
+                }
                 
                 if (ScannedItems.Count == 0)
                 {
@@ -282,7 +295,7 @@ namespace AutomarketPro.Services
             }
         }
 
-        public async Task<IReadOnlyList<ScannedItem>> ScanCurrentRetainerInventory(int retainerIndex, CancellationToken cancelToken)
+        public async Task<IReadOnlyList<ScannedItem>> ScanCurrentRetainerInventory(int retainerIndex, CancellationToken cancelToken, bool fetchMarketData = true)
         {
             try
             {
@@ -306,8 +319,12 @@ namespace AutomarketPro.Services
                 if (retainerItems.Count == 0)
                     return retainerItems;
 
-                await FetchMarketPrices(retainerItems, cancelToken);
-                EvaluateProfitability(retainerItems);
+                if (fetchMarketData)
+                {
+                    await FetchMarketPrices(retainerItems, cancelToken);
+                    EvaluateProfitability(retainerItems);
+                }
+
                 return retainerItems;
             }
             catch (OperationCanceledException)
