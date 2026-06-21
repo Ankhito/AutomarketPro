@@ -21,6 +21,7 @@ namespace AutomarketPro
         public string Name => "AutoMarket Pro";
         
         private const string CommandName = "/automarket";
+        private const string FallbackCommandName = "/amp";
         
         [PluginService] public IDalamudPluginInterface PluginInterface
         {
@@ -62,9 +63,6 @@ namespace AutomarketPro
         
         private void LogError(string message, Exception? ex = null)
         {
-            if (!Configuration?.DebugLogsEnabled ?? false)
-                return;
-                
             try
             {
                 if (PluginLog != null)
@@ -80,9 +78,6 @@ namespace AutomarketPro
         
         private void LogWarning(string message)
         {
-            if (!Configuration?.DebugLogsEnabled ?? false)
-                return;
-                
             try
             {
                 if (PluginLog != null)
@@ -95,6 +90,8 @@ namespace AutomarketPro
         
         private void TryInitializeImmediately()
         {
+            TryRegisterCallbacks();
+
             if (!_initialized && _pluginInterface != null && _commandManager != null && _framework != null)
             {
                 Initialize();
@@ -178,6 +175,7 @@ namespace AutomarketPro
                         PluginLog?.Info("[AutoMarket] DataManager service injected successfully");
                     }
                     catch { }
+                    TryInitializeImmediately();
                 }
                 else
                 {
@@ -215,6 +213,7 @@ namespace AutomarketPro
         private bool _initialized = false;
         private bool _callbacksRegistered = false;
         private bool _commandRegistered = false;
+        private bool _fallbackCommandRegistered = false;
         
         private Action? drawUI;
         private Action? openConfigUI;
@@ -246,6 +245,8 @@ namespace AutomarketPro
         
         private void Initialize()
         {
+            TryRegisterCallbacks();
+
             if (_initialized)
             {
                 return;
@@ -310,30 +311,61 @@ namespace AutomarketPro
                 
                 try
                 {
-                    try
-                    {
-                        _commandManager.RemoveHandler(CommandName);
-                    }
-                    catch
-                    {
-                    }
-
-                    _commandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
-                    {
-                        HelpMessage = "AutoMarket Pro - /automarket [start|stop|pause|config|summary]"
-                    });
-                    _commandRegistered = true;
+                    RegisterCommand(CommandName, "AutoMarket Pro - /automarket [start|stop|pause|config|summary]");
+                    RegisterCommand(FallbackCommandName, "AutoMarket Pro fallback command - /amp [start|stop|pause|config|summary]");
                 }
                 catch (Exception commandEx)
                 {
-                    PluginLog?.Error(commandEx, "[AutoMarket] Failed to register /automarket command");
+                    LogError("[AutoMarket] Failed to register plugin commands", commandEx);
                 }
                 
                 _initialized = true;
+                PluginLog?.Info("[AutoMarket] Initialization complete. UI callbacks and commands are ready.");
             }
             catch (Exception ex)
             {
                 LogError("[AutoMarket] Initialization failed", ex);
+            }
+        }
+
+        private void RegisterCommand(string command, string helpMessage)
+        {
+            try
+            {
+                _commandManager!.AddHandler(command, new CommandInfo(OnCommand)
+                {
+                    HelpMessage = helpMessage
+                });
+
+                if (command == CommandName)
+                    _commandRegistered = true;
+                else if (command == FallbackCommandName)
+                    _fallbackCommandRegistered = true;
+
+                PluginLog?.Info($"[AutoMarket] Registered {command}");
+            }
+            catch (ArgumentException ex)
+            {
+                LogWarning($"[AutoMarket] {command} is already registered. The UI buttons should still work; restart Dalamud if the command points at an old plugin instance. {ex.Message}");
+            }
+        }
+
+        private void RemoveCommandIfRegistered(string command, ref bool registered)
+        {
+            if (_commandManager == null || !registered)
+                return;
+
+            try
+            {
+                _commandManager.RemoveHandler(command);
+            }
+            catch (Exception ex)
+            {
+                LogWarning($"[AutoMarket] Failed to remove {command}: {ex.Message}");
+            }
+            finally
+            {
+                registered = false;
             }
         }
         
@@ -376,14 +408,21 @@ namespace AutomarketPro
             if (_initialized)
             {
                 WindowSystem.RemoveAllWindows();
-                if (_commandManager != null && _commandRegistered)
-                    _commandManager.RemoveHandler(CommandName);
+                RemoveCommandIfRegistered(CommandName, ref _commandRegistered);
+                RemoveCommandIfRegistered(FallbackCommandName, ref _fallbackCommandRegistered);
             }
             else if (_commandManager != null)
             {
                 try
                 {
                     _commandManager.RemoveHandler(CommandName);
+                }
+                catch
+                {
+                }
+                try
+                {
+                    _commandManager.RemoveHandler(FallbackCommandName);
                 }
                 catch
                 {
@@ -472,28 +511,34 @@ namespace AutomarketPro
         
         private void OpenConfigUI()
         {
+            TryRegisterCallbacks();
             Initialize();
             if (_initialized && MainWindow != null)
             {
                 MainWindow.IsOpen = true;
                 MainWindow.ShowSettingsTab = true;
+                PluginLog?.Info("[AutoMarket] OpenConfigUI requested.");
             }
             else
             {
                 PrintChat("[AutoMarket] Plugin is still initializing. Try again in a moment.");
+                LogWarning("[AutoMarket] OpenConfigUI requested before initialization completed.");
             }
         }
         
         private void OpenMainUI()
         {
+            TryRegisterCallbacks();
             Initialize();
             if (_initialized && MainWindow != null)
             {
                 MainWindow.IsOpen = true;
+                PluginLog?.Info("[AutoMarket] OpenMainUI requested.");
             }
             else
             {
                 PrintChat("[AutoMarket] Plugin is still initializing. Try again in a moment.");
+                LogWarning("[AutoMarket] OpenMainUI requested before initialization completed.");
             }
         }
     }
