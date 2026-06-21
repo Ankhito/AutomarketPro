@@ -214,6 +214,7 @@ namespace AutomarketPro
         private RetainerAutomation Automation { get; set; } = null!;
         private bool _initialized = false;
         private bool _callbacksRegistered = false;
+        private bool _commandRegistered = false;
         
         private Action? drawUI;
         private Action? openConfigUI;
@@ -309,13 +310,23 @@ namespace AutomarketPro
                 
                 try
                 {
+                    try
+                    {
+                        _commandManager.RemoveHandler(CommandName);
+                    }
+                    catch
+                    {
+                    }
+
                     _commandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
                     {
                         HelpMessage = "AutoMarket Pro - /automarket [start|stop|pause|config|summary]"
                     });
+                    _commandRegistered = true;
                 }
-                catch (Exception)
+                catch (Exception commandEx)
                 {
+                    PluginLog?.Error(commandEx, "[AutoMarket] Failed to register /automarket command");
                 }
                 
                 _initialized = true;
@@ -365,8 +376,18 @@ namespace AutomarketPro
             if (_initialized)
             {
                 WindowSystem.RemoveAllWindows();
-                if (_commandManager != null)
+                if (_commandManager != null && _commandRegistered)
                     _commandManager.RemoveHandler(CommandName);
+            }
+            else if (_commandManager != null)
+            {
+                try
+                {
+                    _commandManager.RemoveHandler(CommandName);
+                }
+                catch
+                {
+                }
             }
             
             Automation?.Dispose();
@@ -377,6 +398,13 @@ namespace AutomarketPro
         private void OnCommand(string command, string args)
         {
             if (!_initialized) Initialize();
+
+            if (!_initialized || MainWindow == null)
+            {
+                PrintChat("[AutoMarket] Plugin is still initializing. Try again in a moment.");
+                PluginLog?.Warning("[AutoMarket] Command received before UI was initialized.");
+                return;
+            }
             
             if (string.IsNullOrEmpty(args))
             {
@@ -445,18 +473,27 @@ namespace AutomarketPro
         private void OpenConfigUI()
         {
             Initialize();
-            if (_initialized)
+            if (_initialized && MainWindow != null)
             {
                 MainWindow.IsOpen = true;
+                MainWindow.ShowSettingsTab = true;
+            }
+            else
+            {
+                PrintChat("[AutoMarket] Plugin is still initializing. Try again in a moment.");
             }
         }
         
         private void OpenMainUI()
         {
             Initialize();
-            if (_initialized)
+            if (_initialized && MainWindow != null)
             {
                 MainWindow.IsOpen = true;
+            }
+            else
+            {
+                PrintChat("[AutoMarket] Plugin is still initializing. Try again in a moment.");
             }
         }
     }
