@@ -4,7 +4,7 @@
     "Description": "Automates inventory scanning, marketboard listing, and vendor selling using Universalis data and retainer control.",
     "Punchline": "Smart FFXIV marketboard automation.",
     "InternalName": "AutomarketPro",
-    "RepoUrl": "https://github.com/bimilbimil/AutomarketPro",
+    "RepoUrl": "https://github.com/Ankhito/AutomarketPro",
     "Tags": [ "market", "automation", "retainer", "universalis" ],
     "CategoryTags": [ "Utility", "Automation" ],
     "AssemblyVersion": "1.0.0.14",
@@ -12,5 +12,5 @@
     "DalamudApiLevel": 15,
     "HasConfigUi": true,
     "HasMainUi": true,
-    "IconUrl": "https://raw.githubusercontent.com/bimilbimil/AutomarketPro/main/automarketlogo_icon_64.png"
+    "IconUrl": "https://raw.githubusercontent.com/Ankhito/AutomarketPro/main/automarketlogo_icon_64.png"
 }
