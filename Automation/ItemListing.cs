@@ -1436,6 +1436,162 @@ namespace AutomarketPro.Automation
                 return false;
             }
         }
+
+        public async Task<bool> WithdrawRetainerBagItemToInventory(ScannedItem item, CancellationToken token)
+        {
+            try
+            {
+                if (!item.SourceRetainerIndex.HasValue)
+                {
+                    LogError?.Invoke($"[AutoMarket] Cannot stage {item.ItemName}: item is not retainer-sourced", null);
+                    return false;
+                }
+
+                if (!await CheckInventorySpaceAsync())
+                {
+                    Log?.Invoke("[AutoMarket] Player inventory is full; cannot withdraw another staged item right now");
+                    return false;
+                }
+
+                if (!await OpenItemContextMenu(item, token))
+                {
+                    LogError?.Invoke($"[AutoMarket] Failed to open retainer bag context menu for {item.ItemName}", null);
+                    return false;
+                }
+
+                if (!await ClickWithdrawToInventory(token))
+                {
+                    LogError?.Invoke($"[AutoMarket] Failed to click withdraw-to-inventory for {item.ItemName}", null);
+                    return false;
+                }
+
+                await Task.Delay(330, token);
+
+                bool confirmationClicked = false;
+                unsafe
+                {
+                    if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("SelectYesno", out var yesnoAddon)
+                        && yesnoAddon->IsVisible
+                        && ECommons.GenericHelpers.IsAddonReady(yesnoAddon))
+                    {
+                        ECommons.Automation.Callback.Fire(yesnoAddon, true, 0);
+                        confirmationClicked = true;
+                    }
+                }
+
+                if (confirmationClicked)
+                    await Task.Delay(198, token);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogError?.Invoke($"[AutoMarket] Error withdrawing retainer bag item {item.ItemName}: {ex.Message}", ex);
+                return false;
+            }
+        }
+
+        private async Task<bool> ClickWithdrawToInventory(CancellationToken token)
+        {
+            try
+            {
+                ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.ContextMenu contextMenu = null;
+                nint contextMenuPtr = nint.Zero;
+
+                for (int attempts = 0; attempts < 30; attempts++)
+                {
+                    await Task.Delay(66, token);
+                    unsafe
+                    {
+                        if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var contextMenuAddon)
+                            && ECommons.GenericHelpers.IsAddonReady(&contextMenuAddon->AtkUnitBase))
+                        {
+                            contextMenuPtr = (nint)contextMenuAddon;
+                        }
+                    }
+
+                    if (contextMenuPtr != nint.Zero)
+                    {
+                        contextMenu = new ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.ContextMenu(contextMenuPtr);
+                        break;
+                    }
+                }
+
+                if (contextMenu == null || contextMenuPtr == nint.Zero)
+                {
+                    LogError?.Invoke("[AutoMarket] Context menu not found for retainer bag withdrawal", null);
+                    return false;
+                }
+
+                var entries = contextMenu.Entries;
+                if (entries == null)
+                {
+                    LogError?.Invoke("[AutoMarket] Context menu has no entries for retainer bag withdrawal", null);
+                    return false;
+                }
+
+                string[] searchTexts =
+                {
+                    "Retrieve item",
+                    "Retrieve",
+                    "Withdraw",
+                    "Move to inventory",
+                    "Return to inventory",
+                    "Entrust or withdraw"
+                };
+
+                int foundIndex = -1;
+                foreach (var entry in entries)
+                {
+                    try
+                    {
+                        if (!entry.Enabled) continue;
+                        var entryText = entry.Text;
+                        if (!string.IsNullOrEmpty(entryText) &&
+                            searchTexts.Any(text => entryText.Equals(text, StringComparison.OrdinalIgnoreCase) ||
+                                                    entryText.Contains(text, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            foundIndex = entry.Index;
+                            break;
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                if (foundIndex < 0)
+                {
+                    LogError?.Invoke("[AutoMarket] Could not find a retainer bag withdraw option in context menu", null);
+                    return false;
+                }
+
+                unsafe
+                {
+                    if (!ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonContextMenu>("ContextMenu", out var contextMenuAddon))
+                    {
+                        return false;
+                    }
+
+                    var atkUnitBase = &contextMenuAddon->AtkUnitBase;
+                    var values = stackalloc FFXIVClientStructs.FFXIV.Component.GUI.AtkValue[3]
+                    {
+                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int, Int = 0 },
+                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int, Int = foundIndex },
+                        new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Int, Int = 0 }
+                    };
+                    atkUnitBase->FireCallback(3, values, true);
+                }
+
+                await Task.Delay(198, token);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogError?.Invoke($"[AutoMarket] Error clicking withdraw-to-inventory: {ex.Message}", ex);
+                return false;
+            }
+        }
         
         public async Task<bool> ClickHaveRetainerSellItems(ScannedItem item, CancellationToken token)
         {

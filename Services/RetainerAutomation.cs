@@ -179,26 +179,39 @@ namespace AutomarketPro.Services
             var profitableQueue = new Queue<ScannedItem>(profitable);
             var unprofitableQueue = new Queue<ScannedItem>(unprofitable);
             
-            for (int retainerIndex = 0; retainerIndex < retainerCount && !token.IsCancellationRequested; retainerIndex++)
+            int maxPasses = Math.Max(2, retainerCount);
+            for (int pass = 0; pass < maxPasses && !token.IsCancellationRequested; pass++)
             {
-                if (profitableQueue.Count == 0 && unprofitableQueue.Count == 0)
-                    break;
-                
-                StatusUpdate?.Invoke($"Processing Retainer {retainerIndex + 1}...");
-                int currentListings = RetainerInteraction.GetRetainerMarketItemCount(retainerIndex);
-                if (currentListings >= MaxMarketListings)
+                bool didWorkThisPass = false;
+
+                for (int retainerIndex = 0; retainerIndex < retainerCount && !token.IsCancellationRequested; retainerIndex++)
                 {
-                    Log($"[AutoMarket] Retainer {retainerIndex + 1} is already at max listings ({currentListings}/{MaxMarketListings}); skipping sell flow to avoid full-retainer modal.");
-                    DropCurrentRetainerItems(profitableQueue, retainerIndex);
-                    DropCurrentRetainerItems(unprofitableQueue, retainerIndex);
-                    continue;
+                    if (profitableQueue.Count == 0 && unprofitableQueue.Count == 0)
+                        break;
+                    
+                    StatusUpdate?.Invoke($"Processing Retainer {retainerIndex + 1}...");
+                    int currentListings = RetainerInteraction.GetRetainerMarketItemCount(retainerIndex);
+                    if (currentListings >= MaxMarketListings)
+                    {
+                        Log($"[AutoMarket] Retainer {retainerIndex + 1} is already at max listings ({currentListings}/{MaxMarketListings}); staging profitable bag items instead of entering sell flow.");
+                        var staged = await StageProfitableItemsFromRetainer(retainerIndex, profitableQueue, token);
+                        didWorkThisPass |= staged > 0;
+                        DropCurrentRetainerItems(unprofitableQueue, retainerIndex);
+                        continue;
+                    }
+
+                    Log($"[AutoMarket] Opening Retainer {retainerIndex + 1}");
+                    
+                    int beforeProfitable = profitableQueue.Count;
+                    int beforeUnprofitable = unprofitableQueue.Count;
+                    await SimulateRetainerInteraction(retainerIndex, profitableQueue, unprofitableQueue, token);
+                    didWorkThisPass |= profitableQueue.Count != beforeProfitable || unprofitableQueue.Count != beforeUnprofitable;
+                    
+                    await Task.Delay((int)(Plugin.Configuration.RetainerDelay * 1.1), token);
                 }
 
-                Log($"[AutoMarket] Opening Retainer {retainerIndex + 1}");
-                
-                await SimulateRetainerInteraction(retainerIndex, profitableQueue, unprofitableQueue, token);
-                
-                await Task.Delay((int)(Plugin.Configuration.RetainerDelay * 1.1), token);
+                if (!didWorkThisPass)
+                    break;
             }
         }
 
@@ -218,16 +231,9 @@ namespace AutomarketPro.Services
             for (int retainerIndex = 0; retainerIndex < retainerCount && !token.IsCancellationRequested; retainerIndex++)
             {
                 StatusUpdate?.Invoke($"Scanning Retainer {retainerIndex + 1}...");
-                int currentListings = RetainerInteraction.GetRetainerMarketItemCount(retainerIndex);
-                if (currentListings >= MaxMarketListings)
-                {
-                    Log($"[AutoMarket] Retainer {retainerIndex + 1} scan skipped: market listings are full ({currentListings}/{MaxMarketListings}), and the sell flow can hang on full retainers.");
-                    continue;
-                }
-
                 Log($"[AutoMarket] Opening Retainer {retainerIndex + 1} for scan");
 
-                var success = await RetainerInteraction.OpenAndSelectRetainer(retainerIndex, token);
+                var success = await RetainerInteraction.OpenAndSelectRetainerInventory(retainerIndex, token);
                 if (!success)
                 {
                     LogError($"[AutoMarket] Failed to open retainer {retainerIndex + 1} for scan");
@@ -246,6 +252,61 @@ namespace AutomarketPro.Services
 
             StatusUpdate?.Invoke("Ready");
             return totalItems;
+        }
+
+        private async Task<int> StageProfitableItemsFromRetainer(int retainerIndex, Queue<ScannedItem> profitable, CancellationToken token)
+        {
+            if (profitable.Count == 0 || !profitable.Any(item => item.SourceRetainerIndex == retainerIndex))
+                return 0;
+
+            var opened = await RetainerInteraction.OpenAndSelectRetainerInventory(retainerIndex, token);
+            if (!opened)
+            {
+                LogError($"[AutoMarket] Failed to open retainer {retainerIndex + 1} inventory for staging");
+                return 0;
+            }
+
+            await Task.Delay(Math.Max(500, Plugin.Configuration.RetainerDelay), token);
+
+            int staged = 0;
+            int inspected = 0;
+            int maxToInspect = profitable.Count;
+
+            while (inspected < maxToInspect && !token.IsCancellationRequested)
+            {
+                if (!TryMoveNextSourceRetainerToFront(profitable, retainerIndex))
+                    break;
+
+                if (!await ItemListing.CheckInventorySpaceAsync())
+                {
+                    Log("[AutoMarket] Player inventory filled during staging; flushing staged items to open retainer slots before more withdrawals.");
+                    break;
+                }
+
+                var item = profitable.Peek();
+                var success = await ItemListing.WithdrawRetainerBagItemToInventory(item, token);
+                if (!success)
+                {
+                    LogError($"[AutoMarket] Failed to stage {item.ItemName} from Retainer {retainerIndex + 1}; leaving remaining source items for a later pass");
+                    break;
+                }
+
+                profitable.Dequeue();
+                item.SourceRetainerIndex = null;
+                item.SourceName = $"Inventory (staged from Retainer {retainerIndex + 1})";
+                item.InventoryType = FFXIVClientStructs.FFXIV.Client.Game.InventoryType.Inventory1;
+                item.InventorySlot = -1;
+                profitable.Enqueue(item);
+
+                staged++;
+                inspected++;
+                StatusUpdate?.Invoke($"Staged {item.ItemName} from Retainer {retainerIndex + 1}");
+                await Task.Delay(Plugin.Configuration.ActionDelay, token);
+            }
+
+            await ReturnToRetainerListAfterRetainerWork(false, token);
+            Log($"[AutoMarket] Staged {staged} profitable item stack(s) from Retainer {retainerIndex + 1}");
+            return staged;
         }
         
         private async Task SimulateRetainerInteraction(int retainerIndex, Queue<ScannedItem> profitable, Queue<ScannedItem> unprofitable, CancellationToken token)
@@ -464,6 +525,24 @@ namespace AutomarketPro.Services
             {
                 var item = queue.Peek();
                 if (IsEligibleForRetainer(item, retainerIndex))
+                    return true;
+
+                queue.Enqueue(queue.Dequeue());
+            }
+
+            return false;
+        }
+
+        private static bool TryMoveNextSourceRetainerToFront(Queue<ScannedItem> queue, int retainerIndex)
+        {
+            if (queue.Count == 0)
+                return false;
+
+            var count = queue.Count;
+            for (var i = 0; i < count; i++)
+            {
+                var item = queue.Peek();
+                if (item.SourceRetainerIndex == retainerIndex)
                     return true;
 
                 queue.Enqueue(queue.Dequeue());

@@ -218,7 +218,38 @@ namespace AutomarketPro.Automation
             }
         }
         
-        public async Task<bool> OpenAndSelectRetainer(int retainerIndex, CancellationToken token)
+        public Task<bool> OpenAndSelectRetainer(int retainerIndex, CancellationToken token)
+        {
+            return OpenAndSelectRetainerOption(
+                retainerIndex,
+                "Sell items in your inventory on the market",
+                new[]
+                {
+                    "Sell items in your inventory on the market",
+                    "Sell items in your inventory",
+                    "Sell items",
+                    "inventory on the market"
+                },
+                token);
+        }
+
+        public Task<bool> OpenAndSelectRetainerInventory(int retainerIndex, CancellationToken token)
+        {
+            return OpenAndSelectRetainerOption(
+                retainerIndex,
+                "Entrust or withdraw items",
+                new[]
+                {
+                    "Entrust or withdraw items",
+                    "Entrust or withdraw",
+                    "Withdraw items",
+                    "Entrust items",
+                    "View retainer inventory"
+                },
+                token);
+        }
+
+        private async Task<bool> OpenAndSelectRetainerOption(int retainerIndex, string optionDescription, string[] searchTexts, CancellationToken token)
         {
             try
             {
@@ -341,9 +372,9 @@ namespace AutomarketPro.Automation
                     return false;
                 }
                 
-                // Now select "Sell items in your inventory on the market" option directly
+                // Now select the requested retainer option directly
                 // Use the SelectString we already found instead of searching again
-                Log?.Invoke("[AutoMarket] SelectString found, now selecting 'Sell items in your inventory on the market' option...");
+                Log?.Invoke($"[AutoMarket] SelectString found, now selecting '{optionDescription}' option...");
                 await Task.Delay(330, token); // Small delay to ensure SelectString is fully ready
                 
                 await Task.Delay(220, token);
@@ -395,12 +426,7 @@ namespace AutomarketPro.Automation
                                 return false;
                             }
                             
-                            string[] searchTexts = { 
-                                "Sell items in your inventory on the market",
-                                "Sell items in your inventory",
-                                "Sell items",
-                                "inventory on the market"
-                            };
+                            var optionSearchTexts = searchTexts;
                             
                             try
                             {
@@ -415,8 +441,8 @@ namespace AutomarketPro.Automation
                                             var row99Text = row99.Text.ToString();
                                             if (!string.IsNullOrEmpty(row99Text))
                                             {
-                                                var additionalTexts = new List<string>(searchTexts) { row99Text, "Put Up for Sale" };
-                                                searchTexts = additionalTexts.ToArray();
+                                                var additionalTexts = new List<string>(optionSearchTexts) { row99Text, "Put Up for Sale" };
+                                                optionSearchTexts = additionalTexts.ToArray();
                                             }
                                         }
                                     }
@@ -453,7 +479,7 @@ namespace AutomarketPro.Automation
                                     
                                     if (string.IsNullOrEmpty(entryText)) continue;
                                     
-                                    bool matches = searchTexts.Any(searchText => 
+                                    bool matches = optionSearchTexts.Any(searchText => 
                                         entryText.Equals(searchText, StringComparison.OrdinalIgnoreCase) ||
                                         entryText.Contains(searchText, StringComparison.OrdinalIgnoreCase));
                                     
@@ -478,7 +504,7 @@ namespace AutomarketPro.Automation
                             
                             if (foundEntryIndex < 0)
                             {
-                                LogError?.Invoke("[AutoMarket] Could not find 'Sell items in your inventory on the market' option in SelectString", null);
+                                LogError?.Invoke($"[AutoMarket] Could not find '{optionDescription}' option in SelectString", null);
                                 return false;
                             }
                             
