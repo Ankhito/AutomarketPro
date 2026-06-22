@@ -10,6 +10,7 @@ namespace AutomarketPro.Services
 {
     public class RetainerAutomation : IDisposable
     {
+        private const int MaxMarketListings = 20;
         private readonly AutomarketPro.AutomarketProPlugin Plugin;
         private readonly MarketScanner Scanner;
         private readonly RetainerInteraction RetainerInteraction;
@@ -184,6 +185,15 @@ namespace AutomarketPro.Services
                     break;
                 
                 StatusUpdate?.Invoke($"Processing Retainer {retainerIndex + 1}...");
+                int currentListings = RetainerInteraction.GetRetainerMarketItemCount(retainerIndex);
+                if (currentListings >= MaxMarketListings)
+                {
+                    Log($"[AutoMarket] Retainer {retainerIndex + 1} is already at max listings ({currentListings}/{MaxMarketListings}); skipping sell flow to avoid full-retainer modal.");
+                    DropCurrentRetainerItems(profitableQueue, retainerIndex);
+                    DropCurrentRetainerItems(unprofitableQueue, retainerIndex);
+                    continue;
+                }
+
                 Log($"[AutoMarket] Opening Retainer {retainerIndex + 1}");
                 
                 await SimulateRetainerInteraction(retainerIndex, profitableQueue, unprofitableQueue, token);
@@ -208,6 +218,13 @@ namespace AutomarketPro.Services
             for (int retainerIndex = 0; retainerIndex < retainerCount && !token.IsCancellationRequested; retainerIndex++)
             {
                 StatusUpdate?.Invoke($"Scanning Retainer {retainerIndex + 1}...");
+                int currentListings = RetainerInteraction.GetRetainerMarketItemCount(retainerIndex);
+                if (currentListings >= MaxMarketListings)
+                {
+                    Log($"[AutoMarket] Retainer {retainerIndex + 1} scan skipped: market listings are full ({currentListings}/{MaxMarketListings}), and the sell flow can hang on full retainers.");
+                    continue;
+                }
+
                 Log($"[AutoMarket] Opening Retainer {retainerIndex + 1} for scan");
 
                 var success = await RetainerInteraction.OpenAndSelectRetainer(retainerIndex, token);
@@ -242,7 +259,7 @@ namespace AutomarketPro.Services
             }
             
             // Step 2: Wait for RetainerSell window and list items
-            var maxListings = 20;
+            var maxListings = MaxMarketListings;
 
             var retainerInventoryItems = await Scanner.ScanCurrentRetainerInventory(retainerIndex, token);
 
@@ -593,6 +610,14 @@ namespace AutomarketPro.Services
                 for (int retainerIndex = 0; retainerIndex < retainerCount && !token.IsCancellationRequested; retainerIndex++)
                 {
                     StatusUpdate?.Invoke($"Reading listings {retainerIndex + 1}/{retainerCount}...");
+                    int currentListings = RetainerInteraction.GetRetainerMarketItemCount(retainerIndex);
+                    if (currentListings >= MaxMarketListings)
+                    {
+                        summary.RetainersFailed++;
+                        Log($"[AutoMarket] Posted gil refresh skipped Retainer {retainerIndex + 1}: market listings are full ({currentListings}/{MaxMarketListings}), and the sell flow can hang on full retainers.");
+                        continue;
+                    }
+
                     Log($"[AutoMarket] Opening Retainer {retainerIndex + 1} to total listed market value");
 
                     var success = await RetainerInteraction.OpenAndSelectRetainer(retainerIndex, token);
