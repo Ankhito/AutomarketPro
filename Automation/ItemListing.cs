@@ -2169,7 +2169,7 @@ namespace AutomarketPro.Automation
                                     // Extract item data from the renderer's child nodes
                                     var extractedItem = ExtractItemDataFromListRenderer(itemRenderer, itemSheet, entryIndex);
                                     
-                                    if (extractedItem != null && extractedItem.ItemId > 0)
+                                    if (extractedItem != null && (extractedItem.ItemId > 0 || extractedItem.ListingPrice > 0))
                                     {
                                         extractedItem.InventorySlot = entryIndex; // Store the market slot index
                                         listedItems.Add(extractedItem);
@@ -2960,7 +2960,8 @@ namespace AutomarketPro.Automation
                     return;
                 }
                 
-                Log?.Invoke($"[AutoMarket] Adjusting prices for {listedItems.Count} listed items...");
+                listedItems = listedItems.Where(item => item.ItemId > 0).ToList();
+                Log?.Invoke($"[AutoMarket] Adjusting prices for {listedItems.Count} listed items with resolved item IDs...");
                 
                 // Process each listed item
                 for (int i = 0; i < listedItems.Count && !token.IsCancellationRequested; i++)

@@ -593,6 +593,44 @@ namespace AutomarketPro.UI
             SafeText($"Market Value: {totalMarketValue:N0} gil");
             SafeText($"Vendor Value: {totalVendorValue:N0} gil");
             SafeText($"Difference: +{totalMarketValue - totalVendorValue:N0} gil");
+
+            ImGui.Separator();
+            ImGui.Dummy(new Vector2(0, 10));
+            ImGui.Text("Posted Marketboard Value");
+            ImGui.Separator();
+
+            var postedGil = Automation.GetPostedGilSummary();
+            if (postedGil.HasValue)
+            {
+                SafeTextColored(new Vector4(0, 1, 0, 1), $"{postedGil.PostedGil:N0} gil waiting to sell");
+                SafeText($"{postedGil.Listings} listing(s) across {postedGil.RetainersChecked} retainer(s)");
+                SafeText($"Last refreshed: {postedGil.LastUpdated:g}");
+                if (postedGil.RetainersFailed > 0)
+                {
+                    SafeTextColored(new Vector4(1, 0.5f, 0, 1), $"{postedGil.RetainersFailed} retainer(s) could not be read");
+                }
+            }
+            else
+            {
+                SafeTextColored(new Vector4(0.5f, 0.5f, 0.5f, 1), "Not refreshed yet");
+            }
+
+            var refreshDisabled = Automation.Running || Automation.PostedGilRefreshRunning || Scanner.Scanning;
+            if (refreshDisabled)
+            {
+                ImGui.BeginDisabled();
+            }
+
+            var refreshLabel = Automation.PostedGilRefreshRunning ? "Refreshing posted gil..." : "Refresh posted gil";
+            if (ImGui.Button(refreshLabel, new Vector2(180, 25)))
+            {
+                Task.Run(async () => await Automation.RefreshPostedGilSummary());
+            }
+
+            if (refreshDisabled)
+            {
+                ImGui.EndDisabled();
+            }
             
             // Clear separation before next section
             ImGui.Separator();

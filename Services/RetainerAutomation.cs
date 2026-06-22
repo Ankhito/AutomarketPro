@@ -18,10 +18,13 @@ namespace AutomarketPro.Services
         private bool IsRunning = false;
         private bool IsPaused = false;
         private CancellationTokenSource? AutomationToken;
+        private CancellationTokenSource? PostedGilToken;
         private RunSummary LastRunSummary = new();
+        private PostedGilSummary LastPostedGilSummary = new();
         
         public bool Running => IsRunning;
         public bool Paused => IsPaused;
+        public bool PostedGilRefreshRunning { get; private set; }
         public event Action<string>? StatusUpdate;
         
         public RetainerAutomation(AutomarketPro.AutomarketProPlugin plugin, MarketScanner scanner)
@@ -552,8 +555,10 @@ namespace AutomarketPro.Services
         public void StopAutomation()
         {
             AutomationToken?.Cancel();
+            PostedGilToken?.Cancel();
             IsRunning = false;
             IsPaused = false;
+            PostedGilRefreshRunning = false;
             StatusUpdate?.Invoke("Automation stopped");
         }
         
@@ -564,11 +569,87 @@ namespace AutomarketPro.Services
         }
         
         public RunSummary GetLastRunSummary() => LastRunSummary;
+
+        public PostedGilSummary GetPostedGilSummary() => LastPostedGilSummary;
+
+        public async Task RefreshPostedGilSummary()
+        {
+            if (IsRunning || PostedGilRefreshRunning)
+                return;
+
+            PostedGilRefreshRunning = true;
+            PostedGilToken = new CancellationTokenSource();
+            var token = PostedGilToken.Token;
+            var summary = new PostedGilSummary { LastUpdated = DateTime.Now };
+
+            try
+            {
+                StatusUpdate?.Invoke("Refreshing posted gil...");
+                Log("[AutoMarket] Refreshing posted marketboard gil");
+
+                int retainerCount = RetainerInteraction.GetRetainerCount();
+                summary.RetainersChecked = retainerCount;
+
+                for (int retainerIndex = 0; retainerIndex < retainerCount && !token.IsCancellationRequested; retainerIndex++)
+                {
+                    StatusUpdate?.Invoke($"Reading listings {retainerIndex + 1}/{retainerCount}...");
+                    Log($"[AutoMarket] Opening Retainer {retainerIndex + 1} to total listed market value");
+
+                    var success = await RetainerInteraction.OpenAndSelectRetainer(retainerIndex, token);
+                    if (!success)
+                    {
+                        summary.RetainersFailed++;
+                        LogError($"[AutoMarket] Failed to open retainer {retainerIndex + 1} for posted gil refresh");
+                        continue;
+                    }
+
+                    await Task.Delay(Math.Max(500, Plugin.Configuration.RetainerDelay), token);
+
+                    var listedItems = ItemListing.GetListedItems(retainerIndex);
+                    summary.Listings += listedItems.Count;
+                    summary.PostedGil += listedItems.Sum(item => (long)item.ListingPrice * Math.Max(1, item.Quantity));
+
+                    await ReturnToRetainerListAfterRetainerWork(false, token);
+                    await Task.Delay(Math.Max(500, Plugin.Configuration.RetainerDelay), token);
+                }
+
+                LastPostedGilSummary = summary;
+                StatusUpdate?.Invoke("Ready");
+                Plugin?.PrintChat($"[AutoMarket] Posted marketboard value: {summary.PostedGil:N0} gil across {summary.Listings} listing(s).");
+            }
+            catch (OperationCanceledException)
+            {
+                StatusUpdate?.Invoke("Posted gil refresh stopped");
+            }
+            catch (Exception ex)
+            {
+                LogError("[AutoMarket] Posted gil refresh error", ex);
+                StatusUpdate?.Invoke($"Error: {ex.Message}");
+            }
+            finally
+            {
+                PostedGilRefreshRunning = false;
+                PostedGilToken?.Dispose();
+                PostedGilToken = null;
+            }
+        }
         
         public void Dispose()
         {
             AutomationToken?.Cancel();
             AutomationToken?.Dispose();
+            PostedGilToken?.Cancel();
+            PostedGilToken?.Dispose();
         }
+    }
+
+    public class PostedGilSummary
+    {
+        public long PostedGil { get; set; }
+        public int Listings { get; set; }
+        public int RetainersChecked { get; set; }
+        public int RetainersFailed { get; set; }
+        public DateTime LastUpdated { get; set; } = DateTime.MinValue;
+        public bool HasValue => LastUpdated != DateTime.MinValue;
     }
 }
