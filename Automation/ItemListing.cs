@@ -2043,89 +2043,77 @@ namespace AutomarketPro.Automation
         {
             try
             {
-                // Close retainer sub-windows. Market selling and inventory/entrust use different addons.
-                bool closedRetainerSubview = false;
+                // Close retainer sub-windows. Market selling, inventory/entrust, ventures,
+                // and item transfer flows all sit on top of RetainerList with different addons.
                 string[] retainerSubviewNames =
                 {
                     "RetainerSellList",
                     "RetainerItemTransferList",
+                    "RetainerItemTransfer",
                     "RetainerItemTransferProgress",
                     "RetainerInventory",
-                    "InventoryRetainer"
+                    "InventoryRetainer",
+                    "RetainerLarge",
+                    "RetainerStatus",
+                    "RetainerTaskAsk",
+                    "RetainerTaskResult",
+                    "RetainerTaskSupply",
+                    "RetainerTaskList",
+                    "ItemSelect",
+                    "ContextMenu"
                 };
 
-                unsafe
+                for (int pass = 0; pass < 4; pass++)
                 {
+                    if (IsRetainerListReady())
+                        break;
+
+                    bool closedAny = false;
                     foreach (var addonName in retainerSubviewNames)
                     {
-                        if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>(addonName, out var addon)
-                            && addon != null
-                            && addon->IsVisible)
-                        {
-                            addon->Close(true);
-                            closedRetainerSubview = true;
-                        }
+                        closedAny |= TryCloseAddon(addonName);
                     }
-                }
-                
-                if (closedRetainerSubview)
-                {
+
+                    // Close SelectString if it's still open after closing a child addon.
+                    closedAny |= TryCloseAddon("SelectString");
+
+                    if (!closedAny)
+                        break;
+
                     await Task.Delay(550, token);
                 }
-                
-                // Close SelectString if it's still open
-                bool closedSelectString = false;
-                unsafe
-                {
-                    if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("SelectString", out var selectStringAddon))
-                    {
-                        selectStringAddon->Close(true);
-                        closedSelectString = true;
-                    }
-                }
-                
-                if (closedSelectString)
-                {
-                    await Task.Delay(550, token);
-                }
-                
+
                 // Handle confirmation dialog that appears when leaving retainer after vendoring
                 // Only check for dialog if we actually vendored items
                 if (weVendored)
                 {
                     await HandleRetainerLeaveConfirmation(token);
                 }
-                
+
                 // Verify RetainerList is open and ready (we need it to select the next retainer)
-                bool retainerListReady = false;
-                unsafe
-                {
-                    if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("RetainerList", out var retainerListAddon)
-                        && ECommons.GenericHelpers.IsAddonReady(retainerListAddon))
-                    {
-                        retainerListReady = true;
-                    }
-                }
-                
+                bool retainerListReady = IsRetainerListReady();
+
                 // Wait for RetainerList to appear if it's not ready yet
                 if (!retainerListReady)
                 {
                     for (int attempts = 0; attempts < 30; attempts++)
                     {
                         await Task.Delay(66, token);
-                        
-                        unsafe
+
+                        if (IsRetainerListReady())
                         {
-                            if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("RetainerList", out var retainerListAddon)
-                                && ECommons.GenericHelpers.IsAddonReady(retainerListAddon))
-                            {
-                                retainerListReady = true;
-                                break;
-                            }
+                            retainerListReady = true;
+                            break;
                         }
                     }
                 }
-                
+
+                if (!retainerListReady)
+                {
+                    LogError?.Invoke("[AutoMarket] Failed to return to RetainerList after closing retainer sub-windows. Automation will pause instead of idling behind an open retainer bag.", null);
+                    return false;
+                }
+
                 return true;
             }
             catch (Exception ex)
@@ -2133,6 +2121,32 @@ namespace AutomarketPro.Automation
                 LogError?.Invoke($"[AutoMarket] Error closing retainer windows: {ex.Message}", ex);
                 return false;
             }
+        }
+
+        private unsafe bool TryCloseAddon(string addonName)
+        {
+            try
+            {
+                if (!ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>(addonName, out var addon)
+                    || addon == null)
+                    return false;
+
+                addon->Close(true);
+                Log?.Invoke($"[AutoMarket] Closed retainer sub-window: {addonName}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogError?.Invoke($"[AutoMarket] Failed closing addon {addonName}: {ex.Message}", ex);
+                return false;
+            }
+        }
+
+        private unsafe bool IsRetainerListReady()
+        {
+            return ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("RetainerList", out var retainerListAddon)
+                && retainerListAddon != null
+                && ECommons.GenericHelpers.IsAddonReady(retainerListAddon);
         }
         
         /// <summary>

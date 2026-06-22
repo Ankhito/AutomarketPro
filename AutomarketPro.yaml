@@ -2,7 +2,7 @@
   "Author": "Asphodel",
   "Name": "AutoMarket Pro",
   "InternalName": "AutomarketPro",
-  "AssemblyVersion": "1.0.0.27",
+  "AssemblyVersion": "1.0.0.28",
   "Description": "Automates inventory scanning, marketboard listing, and vendor selling using Universalis data and retainer control.",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 15,

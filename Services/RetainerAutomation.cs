@@ -246,7 +246,11 @@ namespace AutomarketPro.Services
                 totalItems += retainerItems.Count;
                 Log($"[AutoMarket] Retainer {retainerIndex + 1} scan found {retainerItems.Count} item stack(s)");
 
-                await ReturnToRetainerListAfterRetainerWork(false, token);
+                if (!await ReturnToRetainerListAfterRetainerWork(false, token))
+                {
+                    LogError($"[AutoMarket] Retainer scan stopped after Retainer {retainerIndex + 1}: could not return to retainer list.");
+                    break;
+                }
                 await Task.Delay(Math.Max(500, Plugin.Configuration.RetainerDelay), token);
             }
 
@@ -488,10 +492,15 @@ namespace AutomarketPro.Services
             LastRunSummary.TotalItems = LastRunSummary.ItemsListed + LastRunSummary.ItemsVendored;
         }
 
-        private async Task ReturnToRetainerListAfterRetainerWork(bool weVendored, CancellationToken token)
+        private async Task<bool> ReturnToRetainerListAfterRetainerWork(bool weVendored, CancellationToken token)
         {
-            await ItemListing.CloseRetainerWindow(weVendored, token);
-            await ItemListing.CloseRetainerList(weVendored, token);
+            var closedRetainerWindow = await ItemListing.CloseRetainerWindow(weVendored, token);
+            var returnedToList = await ItemListing.CloseRetainerList(weVendored, token);
+
+            if (!closedRetainerWindow || !returnedToList)
+                LogError("[AutoMarket] Retainer UI recovery failed after retainer work.");
+
+            return closedRetainerWindow && returnedToList;
         }
 
         private static void DropCurrentRetainerItems(Queue<ScannedItem> queue, int retainerIndex)
