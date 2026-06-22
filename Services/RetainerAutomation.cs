@@ -265,6 +265,10 @@ namespace AutomarketPro.Services
             if (availableSlots <= 0)
             {
                 Log($"[AutoMarket] Retainer {retainerIndex} is already at max listings ({currentListings}/{maxListings}). Moving to next retainer.");
+                DropCurrentRetainerItems(unprofitable, retainerIndex);
+                await ReturnToRetainerListAfterRetainerWork(false, token);
+                LastRunSummary.TotalItems = LastRunSummary.ItemsListed + LastRunSummary.ItemsVendored;
+                return;
             }
             else
             {
@@ -389,7 +393,6 @@ namespace AutomarketPro.Services
                 }
             }
 
-            DropCurrentRetainerItems(profitable, retainerIndex);
             DropCurrentRetainerItems(unprofitable, retainerIndex);
             
             // Close retainer windows if we have more items for next retainer OR if retainer is full
