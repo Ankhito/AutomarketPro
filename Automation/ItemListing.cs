@@ -2037,24 +2037,38 @@ namespace AutomarketPro.Automation
         
         /// <summary>
         /// Closes the retainer UI windows to return to RetainerList (retainer selection).
-        /// Closes RetainerSellList and SelectString, but keeps RetainerList open for next retainer selection.
+        /// Closes market and inventory retainer views, but keeps RetainerList open for next retainer selection.
         /// </summary>
         public async Task<bool> CloseRetainerList(bool weVendored, CancellationToken token)
         {
             try
             {
-                // Close RetainerSellList (the inventory/market board view)
-                bool closedRetainerSellList = false;
+                // Close retainer sub-windows. Market selling and inventory/entrust use different addons.
+                bool closedRetainerSubview = false;
+                string[] retainerSubviewNames =
+                {
+                    "RetainerSellList",
+                    "RetainerItemTransferList",
+                    "RetainerItemTransferProgress",
+                    "RetainerInventory",
+                    "InventoryRetainer"
+                };
+
                 unsafe
                 {
-                    if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("RetainerSellList", out var retainerSellListAddon))
+                    foreach (var addonName in retainerSubviewNames)
                     {
-                        retainerSellListAddon->Close(true);
-                        closedRetainerSellList = true;
+                        if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>(addonName, out var addon)
+                            && addon != null
+                            && addon->IsVisible)
+                        {
+                            addon->Close(true);
+                            closedRetainerSubview = true;
+                        }
                     }
                 }
                 
-                if (closedRetainerSellList)
+                if (closedRetainerSubview)
                 {
                     await Task.Delay(550, token);
                 }
