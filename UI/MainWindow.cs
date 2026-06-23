@@ -715,7 +715,7 @@ namespace AutomarketPro.UI
                 try
                 {
                     Log("[AutoMarket] [SCAN] Task.Run lambda started");
-                    var result = await Scanner.StartScanning();
+                    var result = await Scanner.StartScanning(includeRetainers: true);
                     var itemCount = Scanner.Items?.Count ?? 0;
                     LastScanStatus = result
                         ? $"Last scan: {itemCount} item stack(s)"

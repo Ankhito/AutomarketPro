@@ -80,7 +80,7 @@ namespace AutomarketPro.Services
             CachedWorldName = GetWorldNameOnMainThread();
         }
         
-        public async Task<bool> StartScanning()
+        public async Task<bool> StartScanning(bool includeRetainers = false)
         {
             try
             {
@@ -152,6 +152,22 @@ namespace AutomarketPro.Services
                         LogError("[AutoMarket] [SCAN] Error during inventory scan", ex);
                     }
                 });
+
+                if (includeRetainers)
+                {
+                    try
+                    {
+                        await Plugin.ScanAllRetainersForMarketScan(CancelToken.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogError("[AutoMarket] [SCAN] Error during retainer scan", ex);
+                    }
+                }
 
                 if (ScannedItems.Count == 0)
                 {
@@ -251,6 +267,11 @@ namespace AutomarketPro.Services
                 InventoryType.Inventory3,
                 InventoryType.Inventory4
             };
+
+            var nonEmptySlots = 0;
+            var ignoredSlots = 0;
+            var deadSlots = 0;
+            var addedSlots = 0;
             
             foreach (var type in inventoryTypes)
             {
@@ -261,19 +282,27 @@ namespace AutomarketPro.Services
                 {
                     var slot = container->GetInventorySlot(i);
                     if (slot == null || slot->ItemId == 0) continue;
+                    nonEmptySlots++;
                     
                     var itemData = itemSheet.GetRow(slot->ItemId);
                     if (itemData.RowId == 0) continue;
                     
-                    // Skip untradable items entirely (they can't be sold at all)
-                    if (itemData.IsUntradable) continue;
-                    
                     // Skip ignored items
-                    if (Plugin.Configuration.IgnoredItemIds.Contains(slot->ItemId)) continue;
+                    if (Plugin.Configuration.IgnoredItemIds.Contains(slot->ItemId))
+                    {
+                        ignoredSlots++;
+                        continue;
+                    }
                     
                     // Check if item can be listed on market board
                     // ItemSearchCategory.RowId == 0 means it can't be listed on MB
                     bool canBeListedOnMB = itemData.ItemSearchCategory.RowId != 0;
+                    bool canBeVendored = itemData.PriceLow > 0;
+                    if (!canBeListedOnMB && !canBeVendored)
+                    {
+                        deadSlots++;
+                        continue;
+                    }
                     
                     var itemName = itemData.Name.ToString();
                     if (string.IsNullOrWhiteSpace(itemName))
@@ -282,8 +311,11 @@ namespace AutomarketPro.Services
                     }
                     
                     AddScannedStack(slot, itemData, type, i, null, "Inventory", canBeListedOnMB);
+                    addedSlots++;
                 }
             }
+
+            Log($"[AutoMarket] [SCAN] Inventory slot summary: non-empty={nonEmptySlots}, added={addedSlots}, ignored={ignoredSlots}, no market/vendor value={deadSlots}");
         }
 
         public async Task<IReadOnlyList<ScannedItem>> ScanCurrentRetainerInventory(int retainerIndex, CancellationToken cancelToken, bool fetchMarketData = true)
@@ -356,10 +388,13 @@ namespace AutomarketPro.Services
                     if (slot == null || slot->ItemId == 0) continue;
 
                     var itemData = itemSheet.GetRow(slot->ItemId);
-                    if (itemData.RowId == 0 || itemData.IsUntradable) continue;
+                    if (itemData.RowId == 0) continue;
                     if (Plugin.Configuration.IgnoredItemIds.Contains(slot->ItemId)) continue;
 
                     var canBeListedOnMB = itemData.ItemSearchCategory.RowId != 0;
+                    var canBeVendored = itemData.PriceLow > 0;
+                    if (!canBeListedOnMB && !canBeVendored) continue;
+
                     AddScannedStack(slot, itemData, type, i, retainerIndex, $"Retainer {retainerIndex + 1}", canBeListedOnMB);
                 }
             }
