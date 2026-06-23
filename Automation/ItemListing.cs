@@ -2053,7 +2053,11 @@ namespace AutomarketPro.Automation
                     "RetainerItemTransferProgress",
                     "RetainerInventory",
                     "InventoryRetainer",
+                    "InventoryRetainerLarge",
                     "Inventory",
+                    "InventoryLarge",
+                    "InventoryExpansion",
+                    "InventoryEvent",
                     "RetainerLarge",
                     "RetainerStatus",
                     "RetainerTaskAsk",
@@ -2080,9 +2084,6 @@ namespace AutomarketPro.Automation
                     // Close SelectString if it's still open after closing a child addon.
                     closedAny |= TryCloseAddon("SelectString");
 
-                    if (!closedAny)
-                        break;
-
                     await Task.Delay(550, token);
                 }
 
@@ -2099,11 +2100,18 @@ namespace AutomarketPro.Automation
                 // Wait for RetainerList to appear if it's not ready yet
                 if (!retainerListReady)
                 {
-                    for (int attempts = 0; attempts < 30; attempts++)
+                    for (int attempts = 0; attempts < 150; attempts++)
                     {
                         await Task.Delay(66, token);
 
                         TryClickTalk();
+
+                        foreach (var addonName in retainerSubviewNames)
+                        {
+                            TryCloseAddon(addonName);
+                        }
+
+                        TryCloseAddon("SelectString");
 
                         if (IsRetainerListReady())
                         {
