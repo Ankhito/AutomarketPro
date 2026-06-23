@@ -710,6 +710,49 @@ namespace AutomarketPro.Automation
             });
         }
 
+        private async Task<bool> IsRetainerBagUIReady()
+        {
+            return await RunOnFrameworkThreadAsync(() =>
+            {
+                unsafe
+                {
+                    try
+                    {
+                        string[] bagAddonNames =
+                        {
+                            "InventoryRetainer",
+                            "InventoryRetainerLarge",
+                            "RetainerInventory",
+                            "InventoryExpansion",
+                            "InventoryLarge",
+                            "Inventory"
+                        };
+
+                        foreach (var addonName in bagAddonNames)
+                        {
+                            if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>(addonName, out var addon)
+                                && addon != null
+                                && addon->IsVisible
+                                && ECommons.GenericHelpers.IsAddonReady(addon))
+                            {
+                                return true;
+                            }
+                        }
+
+                        return false;
+                    }
+                    catch (System.AccessViolationException)
+                    {
+                        return false;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                }
+            });
+        }
+
         /// <summary>
         /// Synchronous version of IsRetainerUIReady for use within framework thread context.
         /// </summary>
@@ -751,15 +794,19 @@ namespace AutomarketPro.Automation
         /// Opens context menu for a specific inventory slot. Verifies the slot has the correct item and quantity.
         /// Includes safety checks to prevent crashes.
         /// </summary>
-        private async Task<bool> OpenItemContextMenuForSlot(ScannedItem item, InventoryType inventoryType, int slot, CancellationToken token)
+        private async Task<bool> OpenItemContextMenuForSlot(ScannedItem item, InventoryType inventoryType, int slot, CancellationToken token, bool allowRetainerBagUi = false)
         {
             try
             {
                 // Step 1: Verify retainer UI is ready
-                bool uiReady = await IsRetainerUIReady();
+                bool uiReady = allowRetainerBagUi
+                    ? await IsRetainerBagUIReady()
+                    : await IsRetainerUIReady();
                 if (!uiReady)
                 {
-                    LogError?.Invoke("[AutoMarket] Retainer UI is not ready - cannot open context menu", null);
+                    LogError?.Invoke(allowRetainerBagUi
+                        ? "[AutoMarket] Retainer bag UI is not ready - cannot open context menu"
+                        : "[AutoMarket] Retainer UI is not ready - cannot open context menu", null);
                     return false;
                 }
                 
@@ -1032,7 +1079,7 @@ namespace AutomarketPro.Automation
             return (InventoryType.Inventory1, -1);
         }
         
-        public async Task<bool> OpenItemContextMenu(ScannedItem item, CancellationToken token)
+        public async Task<bool> OpenItemContextMenu(ScannedItem item, CancellationToken token, bool allowRetainerBagUi = false)
         {
             try
             {
@@ -1041,7 +1088,7 @@ namespace AutomarketPro.Automation
                 // Use the specific slot from the scanned item if available
                 if (item.InventoryType != InventoryType.Inventory1 || item.InventorySlot >= 0)
                 {
-                    bool opened = await OpenItemContextMenuForSlot(item, item.InventoryType, item.InventorySlot, token);
+                    bool opened = await OpenItemContextMenuForSlot(item, item.InventoryType, item.InventorySlot, token, allowRetainerBagUi);
                     if (opened)
                     {
                         return true;
@@ -1092,10 +1139,14 @@ namespace AutomarketPro.Automation
             }
                 
                 // Verify retainer UI is ready before opening context menu
-                bool uiReady = await IsRetainerUIReady();
+                bool uiReady = allowRetainerBagUi
+                    ? await IsRetainerBagUIReady()
+                    : await IsRetainerUIReady();
                 if (!uiReady)
                 {
-                    LogError?.Invoke("[AutoMarket] Retainer UI is not ready - cannot open context menu", null);
+                    LogError?.Invoke(allowRetainerBagUi
+                        ? "[AutoMarket] Retainer bag UI is not ready - cannot open context menu"
+                        : "[AutoMarket] Retainer UI is not ready - cannot open context menu", null);
                     return false;
                 }
                 
@@ -1453,7 +1504,7 @@ namespace AutomarketPro.Automation
                     return false;
                 }
 
-                if (!await OpenItemContextMenu(item, token))
+                if (!await OpenItemContextMenu(item, token, allowRetainerBagUi: true))
                 {
                     LogError?.Invoke($"[AutoMarket] Failed to open retainer bag context menu for {item.ItemName}", null);
                     return false;
