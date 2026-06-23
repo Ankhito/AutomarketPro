@@ -2053,6 +2053,7 @@ namespace AutomarketPro.Automation
                     "RetainerItemTransferProgress",
                     "RetainerInventory",
                     "InventoryRetainer",
+                    "Inventory",
                     "RetainerLarge",
                     "RetainerStatus",
                     "RetainerTaskAsk",
@@ -2110,6 +2111,7 @@ namespace AutomarketPro.Automation
 
                 if (!retainerListReady)
                 {
+                    LogVisibleRetainerRecoveryAddons(retainerSubviewNames);
                     LogError?.Invoke("[AutoMarket] Failed to return to RetainerList after closing retainer sub-windows. Automation will pause instead of idling behind an open retainer bag.", null);
                     return false;
                 }
@@ -2131,6 +2133,9 @@ namespace AutomarketPro.Automation
                     || addon == null)
                     return false;
 
+                if (!addon->IsVisible)
+                    return false;
+
                 addon->Close(true);
                 Log?.Invoke($"[AutoMarket] Closed retainer sub-window: {addonName}");
                 return true;
@@ -2139,6 +2144,31 @@ namespace AutomarketPro.Automation
             {
                 LogError?.Invoke($"[AutoMarket] Failed closing addon {addonName}: {ex.Message}", ex);
                 return false;
+            }
+        }
+
+        private unsafe void LogVisibleRetainerRecoveryAddons(IEnumerable<string> addonNames)
+        {
+            try
+            {
+                var visible = new List<string>();
+                foreach (var addonName in addonNames.Append("SelectString"))
+                {
+                    if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>(addonName, out var addon)
+                        && addon != null
+                        && addon->IsVisible)
+                    {
+                        visible.Add(addonName);
+                    }
+                }
+
+                Log?.Invoke(visible.Count > 0
+                    ? $"[AutoMarket] Visible retainer recovery addons still open: {string.Join(", ", visible)}"
+                    : "[AutoMarket] No known visible retainer recovery addons were found while RetainerList was unavailable.");
+            }
+            catch (Exception ex)
+            {
+                LogError?.Invoke($"[AutoMarket] Failed to log visible retainer recovery addons: {ex.Message}", ex);
             }
         }
 
