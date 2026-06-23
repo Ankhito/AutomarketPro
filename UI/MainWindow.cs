@@ -468,6 +468,12 @@ namespace AutomarketPro.UI
                     }
 
                     ImGui.SameLine();
+                    if (ImGui.Button("[R] Reprice", new Vector2(95, 25)))
+                    {
+                        Task.Run(async () => await Automation.StartRepriceCycle());
+                    }
+
+                    ImGui.SameLine();
                     if (ImGui.Button("[C] Clear", new Vector2(75, 25)))
                     {
                         Task.Run(async () => await Automation.StartClearCycle());

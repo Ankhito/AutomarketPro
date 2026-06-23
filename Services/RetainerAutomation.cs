@@ -221,6 +221,73 @@ namespace AutomarketPro.Services
             }
         }
 
+        public async Task StartRepriceCycle()
+        {
+            if (IsRunning) return;
+
+            IsRunning = true;
+            IsPaused = false;
+            AutomationToken = new CancellationTokenSource();
+
+            try
+            {
+                StatusUpdate?.Invoke("Starting retainer repricing...");
+                Log("[AutoMarket] Starting retainer repricing cycle");
+
+                int retainerCount = RetainerInteraction.GetRetainerCount();
+                if (retainerCount == 0)
+                {
+                    LogError("[AutoMarket] No retainers found or unable to access retainer list!");
+                    return;
+                }
+
+                for (int retainerIndex = 0; retainerIndex < retainerCount && !AutomationToken.Token.IsCancellationRequested; retainerIndex++)
+                {
+                    StatusUpdate?.Invoke($"Repricing Retainer {retainerIndex + 1}...");
+
+                    int currentListings = RetainerInteraction.GetRetainerMarketItemCount(retainerIndex);
+                    if (currentListings <= 0)
+                    {
+                        Log($"[AutoMarket] Retainer {retainerIndex + 1} has no market listings to reprice");
+                        continue;
+                    }
+
+                    Log($"[AutoMarket] Opening Retainer {retainerIndex + 1} for repricing ({currentListings}/20 listings)");
+                    var opened = await RetainerInteraction.OpenAndSelectRetainer(retainerIndex, AutomationToken.Token);
+                    if (!opened)
+                    {
+                        LogError($"[AutoMarket] Failed to open retainer {retainerIndex + 1} for repricing");
+                        continue;
+                    }
+
+                    await Task.Delay(Math.Max(330, Plugin.Configuration.RetainerDelay / 2), AutomationToken.Token);
+                    await ItemListing.ManageListedItems(retainerIndex, AutomationToken.Token, force: true);
+                    await ReturnToRetainerListAfterRetainerWork(false, AutomationToken.Token);
+                    await Task.Delay(Math.Max(330, Plugin.Configuration.RetainerDelay / 2), AutomationToken.Token);
+                }
+
+                StatusUpdate?.Invoke("Ready");
+                Log("[AutoMarket] Retainer repricing cycle complete");
+                Plugin?.PrintChat("[AutoMarket] Retainer repricing complete.");
+            }
+            catch (OperationCanceledException)
+            {
+                Log("[AutoMarket] Retainer repricing cancelled");
+            }
+            catch (Exception ex)
+            {
+                LogError($"[AutoMarket] Retainer repricing failed: {ex.Message}");
+                Plugin?.PrintChat($"[AutoMarket] Retainer repricing failed: {ex.Message}");
+            }
+            finally
+            {
+                IsRunning = false;
+                IsPaused = false;
+                AutomationToken?.Dispose();
+                AutomationToken = null;
+            }
+        }
+
         public async Task<int> ScanAllRetainerInventoriesForMarketScan(CancellationToken token)
         {
             int totalItems = 0;

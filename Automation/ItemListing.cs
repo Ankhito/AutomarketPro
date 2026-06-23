@@ -3215,11 +3215,11 @@ namespace AutomarketPro.Automation
         /// Manages listed items on the retainer's market board.
         /// Adjusts prices for each listed item by undercutting the cheapest market price using Compare Price.
         /// </summary>
-        public async Task ManageListedItems(int retainerIndex, CancellationToken token)
+        public async Task ManageListedItems(int retainerIndex, CancellationToken token, bool force = false)
         {
             try
             {
-                if (!Plugin.Configuration.ManageListedItems)
+                if (!force && !Plugin.Configuration.ManageListedItems)
                 {
                     return;
                 }
@@ -3251,23 +3251,18 @@ namespace AutomarketPro.Automation
                     return;
                 }
                 
-                // Get all listed items
-                var listedItems = GetListedItems(retainerIndex);
-                if (listedItems.Count == 0)
+                var listedCount = Math.Clamp(GetRetainerListingCount?.Invoke(retainerIndex) ?? GetRetainerSellListListedCount() ?? 0, 0, 20);
+                if (listedCount == 0)
                 {
                     Log?.Invoke("[AutoMarket] No items listed on retainer market board");
                     return;
                 }
                 
-                listedItems = listedItems.Where(item => item.ItemId > 0).ToList();
-                Log?.Invoke($"[AutoMarket] Adjusting prices for {listedItems.Count} listed items with resolved item IDs...");
+                Log?.Invoke($"[AutoMarket] Adjusting prices for {listedCount} listed item(s) using fast retainer row callbacks...");
                 
-                // Process each listed item
-                for (int i = 0; i < listedItems.Count && !token.IsCancellationRequested; i++)
+                for (int i = 0; i < listedCount && !token.IsCancellationRequested; i++)
                 {
-                    var listedItem = listedItems[i];
-                    
-                    Log?.Invoke($"[AutoMarket] Processing listed item {i + 1}/{listedItems.Count} (slot {i})");
+                    Log?.Invoke($"[AutoMarket] Repricing listed item {i + 1}/{listedCount} (slot {i})");
                     
                     if (token.IsCancellationRequested) break;
                     if (!await ClickListedItem(i, token))
@@ -3416,8 +3411,14 @@ namespace AutomarketPro.Automation
                     uint newPrice = (uint)Math.Max(1, cheapestPrice - Plugin.Configuration.UndercutAmount);
                     Log?.Invoke($"[AutoMarket] Cheapest market price: {cheapestPrice:N0}, new undercut price: {newPrice:N0}");
                     
-                    await SetPriceInRetainerSell(newPrice, 1, token);
-                    Log?.Invoke($"[AutoMarket] Successfully adjusted price to {newPrice:N0}");
+                    if (await SetListedItemPriceFast(newPrice, token))
+                    {
+                        Log?.Invoke($"[AutoMarket] Successfully adjusted price to {newPrice:N0}");
+                    }
+                    else
+                    {
+                        LogError?.Invoke($"[AutoMarket] Failed to apply adjusted price {newPrice:N0}", null);
+                    }
                 }
                 
                 Log?.Invoke("[AutoMarket] Listed item price adjustment complete.");
@@ -3425,6 +3426,143 @@ namespace AutomarketPro.Automation
             catch (Exception ex)
             {
                 LogError?.Invoke($"[AutoMarket] Error managing listed items: {ex.Message}", ex);
+            }
+        }
+
+        private unsafe int? GetRetainerSellListListedCount()
+        {
+            try
+            {
+                if (!ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("RetainerSellList", out var retainerSellList)
+                    || retainerSellList == null
+                    || !retainerSellList->IsVisible)
+                    return null;
+
+                const uint countNodeId = 29;
+                var node = retainerSellList->GetTextNodeById(countNodeId);
+                if (node == null)
+                    return null;
+
+                var text = node->NodeText.ToString();
+                if (string.IsNullOrWhiteSpace(text))
+                    return null;
+
+                var slash = text.IndexOf('/');
+                var left = slash >= 0 ? text[..slash] : text;
+                var digits = new string(left.Where(char.IsDigit).ToArray());
+                return int.TryParse(digits, out var count) ? count : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private async Task<bool> SetListedItemPriceFast(uint price, CancellationToken token)
+        {
+            try
+            {
+                if (token.IsCancellationRequested) return false;
+
+                CloseMarketWindows();
+
+                for (int attempts = 0; attempts < 30 && !token.IsCancellationRequested; attempts++)
+                {
+                    await Task.Delay(33, token);
+                    if (!IsMarketWindowOpen())
+                        break;
+                }
+
+                unsafe
+                {
+                    if (!ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonRetainerSell>("RetainerSell", out var retainerSell)
+                        || retainerSell == null
+                        || !ECommons.GenericHelpers.IsAddonReady(&retainerSell->AtkUnitBase))
+                    {
+                        LogError?.Invoke("[AutoMarket] RetainerSell addon not ready when applying fast listed price", null);
+                        return false;
+                    }
+
+                    var ui = &retainerSell->AtkUnitBase;
+                    ECommons.Automation.Callback.Fire(ui, true, 2, (int)price);
+                }
+
+                for (int attempts = 0; attempts < 30 && !token.IsCancellationRequested; attempts++)
+                {
+                    await Task.Delay(33, token);
+                    var current = GetRetainerSellAskingPrice();
+                    if (current == price)
+                        break;
+                }
+
+                unsafe
+                {
+                    if (!ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonRetainerSell>("RetainerSell", out var retainerSell)
+                        || retainerSell == null
+                        || !ECommons.GenericHelpers.IsAddonReady(&retainerSell->AtkUnitBase))
+                    {
+                        return false;
+                    }
+
+                    var ui = &retainerSell->AtkUnitBase;
+                    ECommons.Automation.Callback.Fire(ui, true, 0);
+                }
+
+                await Task.Delay(110, token);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogError?.Invoke($"[AutoMarket] Error applying fast listed price: {ex.Message}", ex);
+                return false;
+            }
+        }
+
+        private unsafe uint? GetRetainerSellAskingPrice()
+        {
+            try
+            {
+                if (!ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Client.UI.AddonRetainerSell>("RetainerSell", out var retainerSell)
+                    || retainerSell == null)
+                    return null;
+
+                var wrapper = new ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.RetainerSell((nint)retainerSell);
+                var price = wrapper.AskingPrice;
+                return price > 0 ? (uint)price : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private unsafe bool IsMarketWindowOpen()
+        {
+            return ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("ItemSearchResult", out var itemSearch)
+                && itemSearch != null
+                && itemSearch->IsVisible;
+        }
+
+        private unsafe void CloseMarketWindows()
+        {
+            try
+            {
+                if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("ItemSearchResult", out var itemSearch)
+                    && itemSearch != null
+                    && itemSearch->IsVisible)
+                {
+                    itemSearch->Close(true);
+                }
+
+                if (ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("ItemHistory", out var history)
+                    && history != null
+                    && history->IsVisible)
+                {
+                    history->Close(true);
+                }
+            }
+            catch
+            {
             }
         }
         
