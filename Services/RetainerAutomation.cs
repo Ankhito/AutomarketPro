@@ -117,9 +117,15 @@ namespace AutomarketPro.Services
                 
                 if (itemsToList.Count == 0 && itemsToVendor.Count == 0)
                 {
-                    Log("[AutoMarket] No items to process!");
-                    StatusUpdate?.Invoke("No items to process");
-                    return;
+                    var retainerCount = RetainerInteraction.GetRetainerCount();
+                    if (retainerCount == 0)
+                    {
+                        Log("[AutoMarket] No items to process!");
+                        StatusUpdate?.Invoke("No items to process");
+                        return;
+                    }
+
+                    Log("[AutoMarket] No player inventory items to process; checking retainers during processing pass.");
                 }
                 
                 StatusUpdate?.Invoke($"Processing {itemsToList.Count} to list, {itemsToVendor.Count} to vendor...");
@@ -186,7 +192,7 @@ namespace AutomarketPro.Services
 
                 for (int retainerIndex = 0; retainerIndex < retainerCount && !token.IsCancellationRequested; retainerIndex++)
                 {
-                    if (profitableQueue.Count == 0 && unprofitableQueue.Count == 0)
+                    if (profitableQueue.Count == 0 && unprofitableQueue.Count == 0 && pass > 0)
                         break;
                     
                     StatusUpdate?.Invoke($"Processing Retainer {retainerIndex + 1}...");
@@ -330,9 +336,10 @@ namespace AutomarketPro.Services
 
             if (retainerInventoryItems.Count > 0)
             {
+                QueueRetainerScanResults(retainerInventoryItems, profitable, unprofitable);
                 var queuedProfitable = profitable.Count(item => item.SourceRetainerIndex == retainerIndex);
                 var queuedUnprofitable = unprofitable.Count(item => item.SourceRetainerIndex == retainerIndex);
-                Log($"[AutoMarket] Retainer {retainerIndex + 1} inventory scan found {retainerInventoryItems.Count} item stack(s); queued from full scan: {queuedProfitable} to list, {queuedUnprofitable} to vendor");
+                Log($"[AutoMarket] Retainer {retainerIndex + 1} inventory scan found {retainerInventoryItems.Count} item stack(s); queued now: {queuedProfitable} to list, {queuedUnprofitable} to vendor");
             }
 
             // Read the retainer's current listing count ONCE — this initial read from RetainerManager
@@ -512,6 +519,69 @@ namespace AutomarketPro.Services
             queue.Clear();
             foreach (var item in kept)
                 queue.Enqueue(item);
+        }
+
+        private void QueueRetainerScanResults(IReadOnlyList<ScannedItem> retainerItems, Queue<ScannedItem> profitable, Queue<ScannedItem> unprofitable)
+        {
+            if (retainerItems.Count == 0)
+                return;
+
+            var config = Plugin.Configuration;
+            var queuedForList = 0;
+            var queuedForVendor = 0;
+
+            foreach (var item in retainerItems)
+            {
+                if (item.SourceRetainerIndex == null)
+                    continue;
+
+                if (config.ListOnlyMode)
+                {
+                    if (item.IsProfitable && !QueueContainsStack(profitable, item))
+                    {
+                        profitable.Enqueue(item);
+                        queuedForList++;
+                    }
+                    continue;
+                }
+
+                if (config.VendorOnlyMode)
+                {
+                    if (!item.IsProfitable && !QueueContainsStack(unprofitable, item))
+                    {
+                        unprofitable.Enqueue(item);
+                        queuedForVendor++;
+                    }
+                    continue;
+                }
+
+                if (item.IsProfitable)
+                {
+                    if (!QueueContainsStack(profitable, item))
+                    {
+                        profitable.Enqueue(item);
+                        queuedForList++;
+                    }
+                }
+                else if (!QueueContainsStack(unprofitable, item))
+                {
+                    unprofitable.Enqueue(item);
+                    queuedForVendor++;
+                }
+            }
+
+            if (queuedForList > 0 || queuedForVendor > 0)
+                Log($"[AutoMarket] Queued retainer scan results: {queuedForList} to list, {queuedForVendor} to vendor");
+        }
+
+        private static bool QueueContainsStack(Queue<ScannedItem> queue, ScannedItem item)
+        {
+            return queue.Any(existing =>
+                existing.SourceRetainerIndex == item.SourceRetainerIndex
+                && existing.InventoryType == item.InventoryType
+                && existing.InventorySlot == item.InventorySlot
+                && existing.ItemId == item.ItemId
+                && existing.IsHQ == item.IsHQ);
         }
 
         private static bool IsEligibleForRetainer(ScannedItem item, int retainerIndex)

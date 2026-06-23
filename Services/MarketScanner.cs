@@ -132,8 +132,9 @@ namespace AutomarketPro.Services
                 // Reset data center price cache on every scan
                 DataCenterPriceCache.Clear();
                 
-                // Send chat message when scanning starts
-                Plugin?.PrintChat("[AutoMarket] Scanning inventory and retainers started...");
+                // Send chat message when scanning starts. Retainer bags are inspected during
+                // retainer processing so the scan phase does not get trapped in retainer UI.
+                Plugin?.PrintChat("[AutoMarket] Scanning inventory started...");
                 
                 // Small delay before first scan to let game fully initialize (prevents crashes on first use)
                 await Task.Delay(550, CancelToken.Token);
@@ -152,19 +153,6 @@ namespace AutomarketPro.Services
                     }
                 });
 
-                try
-                {
-                    await Plugin.ScanAllRetainersForMarketScan(CancelToken.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    LogError("[AutoMarket] [SCAN] Error during retainer scan", ex);
-                }
-                
                 if (ScannedItems.Count == 0)
                 {
                     // Send chat message when scanning completes with no items
