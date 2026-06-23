@@ -2069,6 +2069,8 @@ namespace AutomarketPro.Automation
                     if (IsRetainerListReady())
                         break;
 
+                    TryClickTalk();
+
                     bool closedAny = false;
                     foreach (var addonName in retainerSubviewNames)
                     {
@@ -2100,6 +2102,8 @@ namespace AutomarketPro.Automation
                     for (int attempts = 0; attempts < 30; attempts++)
                     {
                         await Task.Delay(66, token);
+
+                        TryClickTalk();
 
                         if (IsRetainerListReady())
                         {
@@ -2169,6 +2173,28 @@ namespace AutomarketPro.Automation
             catch (Exception ex)
             {
                 LogError?.Invoke($"[AutoMarket] Failed to log visible retainer recovery addons: {ex.Message}", ex);
+            }
+        }
+
+        private unsafe bool TryClickTalk()
+        {
+            try
+            {
+                if (!ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("Talk", out var talkAddon)
+                    || talkAddon == null
+                    || !talkAddon->IsVisible
+                    || !ECommons.GenericHelpers.IsAddonReady(talkAddon))
+                    return false;
+
+                var talkMaster = new ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.Talk((nint)talkAddon);
+                talkMaster.Click();
+                Log?.Invoke("[AutoMarket] Clicked retainer Talk bubble during recovery");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogError?.Invoke($"[AutoMarket] Failed clicking Talk bubble during recovery: {ex.Message}", ex);
+                return false;
             }
         }
 

@@ -385,7 +385,7 @@ namespace AutomarketPro
         {
             try
             {
-                if (Automation != null && Automation.Running
+                if (((Automation != null && Automation.Running) || (Scanner != null && Scanner.Scanning))
                     && ECommons.GenericHelpers.TryGetAddonByName<FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase>("Talk", out var talkAddon)
                     && talkAddon->IsVisible
                     && ECommons.GenericHelpers.IsAddonReady(talkAddon))
