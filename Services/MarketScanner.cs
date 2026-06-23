@@ -17,8 +17,15 @@ namespace AutomarketPro.Services
     {
         private const double SalesHalfLife = 6d;
         private const double UnitsHalfLife = 30d;
+        private const double WeeklySalesHalfLife = 18d;
+        private const double WeeklyUnitsHalfLife = 90d;
         private const double FreshSaleHalfLifeHours = 18d;
         private const double SupplyDaysComfortZone = 4d;
+        private const double StaleSalePenaltyStartHours = 72d;
+        private const double VeryStaleSaleHours = 168d;
+        private const double StaleMarketDataHours = 12d;
+        private const double ExtremeOutlierRatio = 0.50d;
+        private const double MinSellabilityForListing = 0.18d;
         private readonly AutomarketProPlugin Plugin;
         private readonly HttpClient HttpClient;
         private List<ScannedItem> ScannedItems = new();
@@ -572,9 +579,7 @@ namespace AutomarketPro.Services
                     if (data?.listings?.Length > 0)
                     {
                         // Find the lowest price across the data center (or world)
-                        uint lowestPrice = (uint)data.listings
-                            .OrderBy(l => l.pricePerUnit)
-                            .First().pricePerUnit;
+                        uint lowestPrice = SelectReferenceListingPrice(item, data);
                         
                         ApplyMarketData(item, data, lowestPrice);
                         
@@ -590,12 +595,6 @@ namespace AutomarketPro.Services
                             }
                         }
                         
-                        if (data.recentHistory?.Length > 0)
-                        {
-                            item.RecentSalePrice = (uint)data.recentHistory
-                                .OrderByDescending(h => h.timestamp)
-                                .First().pricePerUnit;
-                        }
                     }
                     else
                     {
@@ -657,7 +656,7 @@ namespace AutomarketPro.Services
                     var cachedProfitMargin = (int)item.ListingPrice - (int)item.VendorPrice;
                     item.ProfitPerItem = cachedProfitMargin;
                     item.TotalProfit = cachedProfitMargin * item.Quantity;
-                    item.IsProfitable = item.TotalProfit > config.MinProfitThreshold && item.SellabilityScore > 0;
+                    item.IsProfitable = item.TotalProfit > config.MinProfitThreshold && item.SellabilityScore >= MinSellabilityForListing;
                     continue;
                 }
                 
@@ -691,7 +690,7 @@ namespace AutomarketPro.Services
                 
                 item.ProfitPerItem = profitMargin;
                 item.TotalProfit = profitMargin * item.Quantity;
-                item.IsProfitable = item.TotalProfit > config.MinProfitThreshold && item.SellabilityScore > 0;
+                item.IsProfitable = item.TotalProfit > config.MinProfitThreshold && item.SellabilityScore >= MinSellabilityForListing;
             }
             
             // Sort by sellability first, then expected profit within the same sell-through band.
@@ -739,9 +738,7 @@ namespace AutomarketPro.Services
                 
                 if (data?.listings?.Length > 0)
                 {
-                    uint lowestPrice = (uint)data.listings
-                        .OrderBy(l => l.pricePerUnit)
-                        .First().pricePerUnit;
+                    uint lowestPrice = SelectReferenceListingPrice(item, data);
                     
                     ApplyMarketData(item, data, lowestPrice);
                     
@@ -756,12 +753,6 @@ namespace AutomarketPro.Services
                         }
                     }
                     
-                    if (data.recentHistory?.Length > 0)
-                    {
-                        item.RecentSalePrice = (uint)data.recentHistory
-                            .OrderByDescending(h => h.timestamp)
-                            .First().pricePerUnit;
-                    }
                 }
                 else
                 {
@@ -819,7 +810,7 @@ namespace AutomarketPro.Services
                 var cachedProfitMargin = (int)item.ListingPrice - (int)item.VendorPrice;
                 item.ProfitPerItem = cachedProfitMargin;
                 item.TotalProfit = cachedProfitMargin * item.Quantity;
-                item.IsProfitable = item.TotalProfit > config.MinProfitThreshold;
+                item.IsProfitable = item.TotalProfit > config.MinProfitThreshold && item.SellabilityScore >= MinSellabilityForListing;
                 return;
             }
             
@@ -853,7 +844,7 @@ namespace AutomarketPro.Services
             
             item.ProfitPerItem = profitMargin;
             item.TotalProfit = profitMargin * item.Quantity;
-            item.IsProfitable = item.TotalProfit > config.MinProfitThreshold;
+            item.IsProfitable = item.TotalProfit > config.MinProfitThreshold && item.SellabilityScore >= MinSellabilityForListing;
         }
         
         private static InventoryType[] RetainerInventoryTypes() =>
@@ -870,22 +861,40 @@ namespace AutomarketPro.Services
         private static void ApplyMarketData(ScannedItem item, UniversalisResponse data, uint lowestPrice)
         {
             item.MarketPrice = lowestPrice;
-            item.ActiveListings = data.listings?.Length ?? 0;
-            item.ActiveListedQuantity = data.listings?.Sum(listing => Math.Max(0, listing.quantity)) ?? 0;
+            item.ReferenceListingPrice = lowestPrice;
+
+            var matchingListings = GetMatchingQualityListings(item, data).ToArray();
+            item.ActiveListings = matchingListings.Length;
+            item.ActiveListedQuantity = matchingListings.Sum(listing => Math.Max(0, listing.quantity));
 
             var now = DateTimeOffset.UtcNow;
-            var recentSales = data.recentHistory?
-                .Where(history => now - DateTimeOffset.FromUnixTimeSeconds(history.timestamp) <= TimeSpan.FromHours(24))
-                .ToArray() ?? Array.Empty<RecentHistory>();
-
-            item.Sales24h = recentSales.Length;
-            item.UnitsSold24h = recentSales.Sum(history => Math.Max(0, history.quantity));
-            item.LastSaleAgeHours = data.recentHistory?.Length > 0
-                ? Math.Max(0, (now - DateTimeOffset.FromUnixTimeSeconds(data.recentHistory.Max(history => history.timestamp))).TotalHours)
+            item.MarketDataAgeHours = data.lastUploadTime > 0
+                ? Math.Max(0, (now - DateTimeOffset.FromUnixTimeMilliseconds(data.lastUploadTime)).TotalHours)
                 : null;
 
+            var matchingHistory = GetMatchingQualityHistory(item, data).ToArray();
+            var recentSales = matchingHistory
+                .Where(history => now - DateTimeOffset.FromUnixTimeSeconds(history.timestamp) <= TimeSpan.FromHours(24))
+                .ToArray();
+            var weeklySales = matchingHistory
+                .Where(history => now - DateTimeOffset.FromUnixTimeSeconds(history.timestamp) <= TimeSpan.FromDays(7))
+                .ToArray();
+
+            item.Sales24h = recentSales.Length;
+            item.Sales7d = weeklySales.Length;
+            item.UnitsSold24h = recentSales.Sum(history => Math.Max(0, history.quantity));
+            item.UnitsSold7d = weeklySales.Sum(history => Math.Max(0, history.quantity));
+            item.LastSaleAgeHours = matchingHistory.Length > 0
+                ? Math.Max(0, (now - DateTimeOffset.FromUnixTimeSeconds(matchingHistory.Max(history => history.timestamp))).TotalHours)
+                : null;
+            item.RecentSalePrice = matchingHistory.Length > 0
+                ? (uint)matchingHistory.OrderByDescending(history => history.timestamp).First().pricePerUnit
+                : 0;
+            item.MedianRecentSalePrice = MedianPrice(weeklySales);
+
             item.SellabilityScore = CalculateSellability(item);
-            item.MarketHealth = item.Sales24h == 0 ? "No 24h movement" :
+            item.MarketPriceSource = BuildPriceSource(item, matchingListings, data);
+            item.MarketHealth = item.SellabilityScore < MinSellabilityForListing ? "Stale/slow market" :
                 item.SellabilityScore < 0.45 ? "Thin market" :
                 item.ActiveListedQuantity > 0 && item.UnitsSold24h > 0 && item.ActiveListedQuantity / (double)item.UnitsSold24h > SupplyDaysComfortZone ? "Crowded market" :
                 item.SellabilityScore < 0.70 ? "Healthy" :
@@ -894,30 +903,111 @@ namespace AutomarketPro.Services
 
         private static double CalculateSellability(ScannedItem item)
         {
-            if (item.Sales24h <= 0 || item.UnitsSold24h <= 0)
+            if ((item.Sales24h <= 0 && item.Sales7d <= 0) || (item.UnitsSold24h <= 0 && item.UnitsSold7d <= 0))
                 return 0;
 
             var saleVelocity = SaturatingScore(item.Sales24h, SalesHalfLife);
             var unitVelocity = SaturatingScore(item.UnitsSold24h, UnitsHalfLife);
+            var weeklySaleVelocity = SaturatingScore(item.Sales7d, WeeklySalesHalfLife);
+            var weeklyUnitVelocity = SaturatingScore(item.UnitsSold7d, WeeklyUnitsHalfLife);
             var recency = Math.Exp(-(item.LastSaleAgeHours ?? 36d) / FreshSaleHalfLifeHours);
-            var liquidity = 0.50 * saleVelocity + 0.30 * unitVelocity + 0.20 * recency;
-            var supply = SupplyScore(item.ActiveListedQuantity, item.UnitsSold24h);
-            return liquidity * supply;
+            var liquidity = 0.35 * saleVelocity + 0.20 * unitVelocity + 0.20 * weeklySaleVelocity + 0.10 * weeklyUnitVelocity + 0.15 * recency;
+            var demandUnitsPerDay = Math.Max(item.UnitsSold24h, item.UnitsSold7d / 7d);
+            var supply = SupplyScore(item.ActiveListedQuantity, demandUnitsPerDay);
+            var stalePenalty = StalePenalty(item.LastSaleAgeHours, item.MarketDataAgeHours);
+            return liquidity * supply * stalePenalty;
         }
 
         private static double SaturatingScore(double value, double halfLife)
             => 1d - Math.Exp(-Math.Max(value, 0d) / halfLife);
 
-        private static double SupplyScore(int activeSupply, int unitsSold24h)
+        private static double SupplyScore(int activeSupply, double demandUnitsPerDay)
         {
-            if (unitsSold24h <= 0)
+            if (demandUnitsPerDay <= 0)
                 return 0;
 
             if (activeSupply <= 0)
                 return 0.75;
 
-            var daysOfSupply = activeSupply / (double)unitsSold24h;
+            var daysOfSupply = activeSupply / demandUnitsPerDay;
             return 0.25d + 0.75d / (1d + daysOfSupply / SupplyDaysComfortZone);
+        }
+
+        private static IEnumerable<Listing> GetMatchingQualityListings(ScannedItem item, UniversalisResponse data)
+        {
+            var listings = data.listings ?? Array.Empty<Listing>();
+            var matching = listings.Where(listing => listing.hq == item.IsHQ && listing.pricePerUnit > 0).ToArray();
+            return matching.Length > 0 ? matching : listings.Where(listing => listing.pricePerUnit > 0);
+        }
+
+        private static IEnumerable<RecentHistory> GetMatchingQualityHistory(ScannedItem item, UniversalisResponse data)
+        {
+            var history = data.recentHistory ?? Array.Empty<RecentHistory>();
+            var matching = history.Where(sale => sale.hq == item.IsHQ && sale.pricePerUnit > 0).ToArray();
+            return matching.Length > 0 ? matching : history.Where(sale => sale.pricePerUnit > 0);
+        }
+
+        private static uint SelectReferenceListingPrice(ScannedItem item, UniversalisResponse data)
+        {
+            var prices = GetMatchingQualityListings(item, data)
+                .Select(listing => listing.pricePerUnit)
+                .Where(price => price > 0)
+                .OrderBy(price => price)
+                .ToArray();
+
+            if (prices.Length == 0)
+                return 0;
+
+            if (prices.Length >= 2 && prices[0] < prices[1] * ExtremeOutlierRatio)
+                return (uint)prices[1];
+
+            return (uint)prices[0];
+        }
+
+        private static uint MedianPrice(IEnumerable<RecentHistory> history)
+        {
+            var prices = history
+                .Select(sale => sale.pricePerUnit)
+                .Where(price => price > 0)
+                .OrderBy(price => price)
+                .ToArray();
+
+            if (prices.Length == 0)
+                return 0;
+
+            return (uint)prices[prices.Length / 2];
+        }
+
+        private static double StalePenalty(double? lastSaleAgeHours, double? marketDataAgeHours)
+        {
+            var saleAge = lastSaleAgeHours ?? VeryStaleSaleHours;
+            var salePenalty = saleAge <= StaleSalePenaltyStartHours
+                ? 1d
+                : Math.Max(0.15d, 1d - (saleAge - StaleSalePenaltyStartHours) / (VeryStaleSaleHours - StaleSalePenaltyStartHours));
+
+            var dataPenalty = marketDataAgeHours is > StaleMarketDataHours
+                ? Math.Max(0.50d, StaleMarketDataHours / marketDataAgeHours.Value)
+                : 1d;
+
+            return salePenalty * dataPenalty;
+        }
+
+        private static string BuildPriceSource(ScannedItem item, Listing[] matchingListings, UniversalisResponse data)
+        {
+            var requestedQualityListings = data.listings?.Any(listing => listing.hq == item.IsHQ && listing.pricePerUnit > 0) == true;
+            var source = requestedQualityListings ? "Matching-quality listing" : "Fallback-quality listing";
+
+            if (matchingListings.Length >= 2)
+            {
+                var sorted = matchingListings.Select(listing => listing.pricePerUnit).Where(price => price > 0).OrderBy(price => price).ToArray();
+                if (sorted.Length >= 2 && sorted[0] < sorted[1] * ExtremeOutlierRatio)
+                    source += " (outlier adjusted)";
+            }
+
+            if (item.MarketDataAgeHours is > StaleMarketDataHours)
+                source += ", stale data";
+
+            return source;
         }
 
         public void Dispose()
@@ -927,4 +1017,5 @@ namespace AutomarketPro.Services
         }
     }
 }
+
 

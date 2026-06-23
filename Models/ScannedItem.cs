@@ -23,11 +23,17 @@ namespace AutomarketPro.Models
         public string SourceName { get; set; } = "Inventory";
         public double SellabilityScore { get; set; }
         public int Sales24h { get; set; }
+        public int Sales7d { get; set; }
         public int UnitsSold24h { get; set; }
+        public int UnitsSold7d { get; set; }
         public int ActiveListings { get; set; }
         public int ActiveListedQuantity { get; set; }
         public double? LastSaleAgeHours { get; set; }
+        public double? MarketDataAgeHours { get; set; }
+        public uint ReferenceListingPrice { get; set; }
+        public uint MedianRecentSalePrice { get; set; }
         public string MarketHealth { get; set; } = "Unknown";
+        public string MarketPriceSource { get; set; } = "Unknown";
     }
 }
 
