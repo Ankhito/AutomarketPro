@@ -157,6 +157,8 @@ namespace AutomarketPro.Services
                 {
                     // Send chat message when scanning completes with no items
                     Plugin?.PrintChat("[AutoMarket] Scanning complete! No items found.");
+                    Log("[AutoMarket] [SCAN] Inventory scan completed with 0 eligible item stack(s).");
+                    ScanComplete?.Invoke();
                     return true;
                 }
                 
@@ -166,6 +168,7 @@ namespace AutomarketPro.Services
                 // Send chat message when scanning completes successfully
                 if (ScannedItems != null)
                 {
+                    Log($"[AutoMarket] [SCAN] Inventory scan completed with {ScannedItems.Count} eligible item stack(s).");
                     Plugin?.PrintChat($"[AutoMarket] Scanning complete! Found {ScannedItems.Count} items.");
                 }
                 else

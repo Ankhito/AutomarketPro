@@ -19,6 +19,7 @@ namespace AutomarketPro.UI
         private readonly MarketScanner Scanner;
         private readonly RetainerAutomation Automation;
         private string AutomationStatus = "Ready";
+        private string LastScanStatus = "No scan yet";
         private bool forceVisiblePlacement = false;
         public bool ShowSettingsTab = false;
         
@@ -463,23 +464,7 @@ namespace AutomarketPro.UI
                     ImGui.SameLine();
                     if (ImGui.Button("[S] Scan Only", new Vector2(100, 25)))
                     {
-                        // Log button click immediately
-                        Log("[AutoMarket] [SCAN] Button clicked - starting scan...");
-
-                        // Run scan in background - catch and log any errors
-                        _ = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                Log("[AutoMarket] [SCAN] Task.Run lambda started");
-                                var result = await Scanner.StartScanning();
-                                Log($"[AutoMarket] [SCAN] StartScanning() returned: {result}");
-                            }
-                            catch (Exception ex)
-                            {
-                                LogError("[AutoMarket] Scan button error", ex);
-                            }
-                        });
+                        StartScanOnly();
                     }
 
                     ImGui.SameLine();
@@ -499,23 +484,7 @@ namespace AutomarketPro.UI
                     ImGui.SameLine();
                     if (ImGui.Button("[S] Scan Only", new Vector2(100, 25)))
                     {
-                        // Log button click immediately
-                        Log("[AutoMarket] [SCAN] Button clicked - starting scan...");
-                        
-                        // Run scan in background - catch and log any errors
-                        _ = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                Log("[AutoMarket] [SCAN] Task.Run lambda started");
-                                var result = await Scanner.StartScanning();
-                                Log($"[AutoMarket] [SCAN] StartScanning() returned: {result}");
-                            }
-                            catch (Exception ex)
-                            {
-                                LogError("[AutoMarket] Scan button error", ex);
-                            }
-                        });
+                        StartScanOnly();
                     }
                 }
             
@@ -539,6 +508,8 @@ namespace AutomarketPro.UI
             else
             {
                 ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1), "[_] Idle");
+                ImGui.SameLine();
+                SafeText($"- {LastScanStatus}");
             }
             }
             catch (Exception ex)
@@ -732,6 +703,31 @@ namespace AutomarketPro.UI
                 SafeTextColored(new Vector4(1, 0, 0, 1), $"Error in DrawResultsTable: {ex?.Message ?? "Unknown"}");
                 LogError("[AutoMarket] DrawResultsTable error", ex);
             }
+        }
+
+        private void StartScanOnly()
+        {
+            Log("[AutoMarket] [SCAN] Button clicked - starting scan...");
+            LastScanStatus = "Starting scan...";
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    Log("[AutoMarket] [SCAN] Task.Run lambda started");
+                    var result = await Scanner.StartScanning();
+                    var itemCount = Scanner.Items?.Count ?? 0;
+                    LastScanStatus = result
+                        ? $"Last scan: {itemCount} item stack(s)"
+                        : "Last scan failed";
+                    Log($"[AutoMarket] [SCAN] StartScanning() returned: {result}; items={itemCount}");
+                }
+                catch (Exception ex)
+                {
+                    LastScanStatus = "Last scan errored";
+                    LogError("[AutoMarket] Scan button error", ex);
+                }
+            });
         }
 
         private void DrawResultsItemsTable(IReadOnlyList<ScannedItem> items, string tableIdSuffix)
