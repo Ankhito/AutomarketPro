@@ -868,9 +868,7 @@ namespace AutomarketPro.Services
             item.ActiveListedQuantity = matchingListings.Sum(listing => Math.Max(0, listing.quantity));
 
             var now = DateTimeOffset.UtcNow;
-            item.MarketDataAgeHours = data.lastUploadTime > 0
-                ? Math.Max(0, (now - DateTimeOffset.FromUnixTimeMilliseconds(data.lastUploadTime)).TotalHours)
-                : null;
+            item.MarketDataAgeHours = GetUploadAgeHours(data.lastUploadTime, now);
 
             var matchingHistory = GetMatchingQualityHistory(item, data).ToArray();
             var recentSales = matchingHistory
@@ -990,6 +988,25 @@ namespace AutomarketPro.Services
                 : 1d;
 
             return salePenalty * dataPenalty;
+        }
+
+        private static double? GetUploadAgeHours(long lastUploadTime, DateTimeOffset now)
+        {
+            if (lastUploadTime <= 0)
+                return null;
+
+            try
+            {
+                var uploadedAt = lastUploadTime > 10_000_000_000
+                    ? DateTimeOffset.FromUnixTimeMilliseconds(lastUploadTime)
+                    : DateTimeOffset.FromUnixTimeSeconds(lastUploadTime);
+
+                return Math.Max(0, (now - uploadedAt).TotalHours);
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static string BuildPriceSource(ScannedItem item, Listing[] matchingListings, UniversalisResponse data)

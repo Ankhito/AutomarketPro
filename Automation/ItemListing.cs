@@ -3487,12 +3487,22 @@ namespace AutomarketPro.Automation
                     ECommons.Automation.Callback.Fire(ui, true, 2, (int)price);
                 }
 
+                var applied = false;
                 for (int attempts = 0; attempts < 30 && !token.IsCancellationRequested; attempts++)
                 {
                     await Task.Delay(33, token);
                     var current = GetRetainerSellAskingPrice();
                     if (current == price)
+                    {
+                        applied = true;
                         break;
+                    }
+                }
+
+                if (!applied)
+                {
+                    LogError?.Invoke($"[AutoMarket] Timed out waiting for RetainerSell price field to apply {price:N0}", null);
+                    return false;
                 }
 
                 unsafe
