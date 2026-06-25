@@ -3,9 +3,9 @@
     <NoWarn>CA1416;CS1705</NoWarn>
     <TargetFramework>net10.0-windows</TargetFramework>
     <AssemblyName>AutomarketPro</AssemblyName>
-    <Version>1.0.0.38</Version>
-    <AssemblyVersion>1.0.0.38</AssemblyVersion>
-    <FileVersion>1.0.0.38</FileVersion>
+    <Version>1.0.0.39</Version>
+    <AssemblyVersion>1.0.0.39</AssemblyVersion>
+    <FileVersion>1.0.0.39</FileVersion>
     <RootNamespace>AutomarketPro</RootNamespace>
     <Platforms>x64</Platforms>
     <Nullable>disable</Nullable>

@@ -798,6 +798,7 @@ namespace AutomarketPro.Services
         {
             AutomationToken?.Cancel();
             PostedGilToken?.Cancel();
+            Scanner.StopScanning();
             IsRunning = false;
             IsPaused = false;
             PostedGilRefreshRunning = false;

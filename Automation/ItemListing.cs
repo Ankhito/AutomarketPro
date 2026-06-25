@@ -722,10 +722,7 @@ namespace AutomarketPro.Automation
                         {
                             "InventoryRetainer",
                             "InventoryRetainerLarge",
-                            "RetainerInventory",
-                            "InventoryExpansion",
-                            "InventoryLarge",
-                            "Inventory"
+                            "RetainerInventory"
                         };
 
                         foreach (var addonName in bagAddonNames)
@@ -2105,10 +2102,6 @@ namespace AutomarketPro.Automation
                     "RetainerInventory",
                     "InventoryRetainer",
                     "InventoryRetainerLarge",
-                    "Inventory",
-                    "InventoryLarge",
-                    "InventoryExpansion",
-                    "InventoryEvent",
                     "RetainerLarge",
                     "RetainerStatus",
                     "RetainerTaskAsk",
